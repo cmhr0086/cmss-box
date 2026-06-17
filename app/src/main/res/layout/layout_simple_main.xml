@@ -17,7 +17,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:gravity="center"
-        android:text="NekoBox"
+        android:text="CMSS-Box"
         android:textColor="@color/simple_text_primary"
         android:textSize="30sp"
         android:textStyle="bold" />
