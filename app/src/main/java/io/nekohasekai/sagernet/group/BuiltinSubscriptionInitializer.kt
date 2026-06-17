@@ -34,12 +34,13 @@ object BuiltinSubscriptionInitializer {
                 }
             )
             GroupManager.createGroup(group)
-            val updated = GroupUpdater.executeUpdate(group, false)
-            if (updated) {
-                DataStore.selectedGroup = group.id
-                DataStore.builtinSubInitialized = true
-                Logs.d("builtin subscription initialized")
-            } else {
+               val updated = GroupUpdater.executeUpdate(group, false)
+               if (updated) {
+                   DataStore.selectedGroup = group.id
+                   selectFirstProfileIfNeeded(group.id)
+                   DataStore.builtinSubInitialized = true
+                   Logs.d("builtin subscription initialized")
+               } else {
                 cleanupFailedGroup(group)
                 Logs.w("builtin subscription update failed")
             }
@@ -51,13 +52,26 @@ object BuiltinSubscriptionInitializer {
 
     private fun hasUserConfiguration(): Boolean {
         if (SagerDatabase.proxyDao.getAll().isNotEmpty()) return true
-        return SagerDatabase.groupDao.allGroups().any {
-            !it.ungrouped || it.type == GroupType.SUBSCRIPTION
-        }
-    }
+       return SagerDatabase.groupDao.allGroups().any {
+           !it.ungrouped || it.type == GroupType.SUBSCRIPTION
+       }
+   }
 
-    private suspend fun cleanupFailedGroup(group: ProxyGroup) {
-        if (group.id > 0L) {
+   private fun selectFirstProfileIfNeeded(groupId: Long) {
+       if (DataStore.selectedProxy > 0L &&
+           SagerDatabase.proxyDao.getById(DataStore.selectedProxy) != null
+       ) {
+           return
+       }
+       val firstProfile = SagerDatabase.proxyDao.getByGroup(groupId).minWithOrNull(
+           compareBy({ it.userOrder }, { it.id })
+       ) ?: return
+       DataStore.selectedProxy = firstProfile.id
+       DataStore.currentProfile = firstProfile.id
+   }
+
+   private suspend fun cleanupFailedGroup(group: ProxyGroup) {
+       if (group.id > 0L) {
             GroupManager.deleteGroup(group.id)
         }
     }
