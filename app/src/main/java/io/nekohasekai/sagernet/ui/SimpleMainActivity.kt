@@ -255,7 +255,8 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
         val userInfo = group?.subscription?.subscriptionUserinfo
 
         if (userInfo.isNullOrBlank()) {
-            binding.trafficInfo.text = "剩余 未知 · 到期 未知"
+            binding.trafficInfo.text = "剩余 未知"
+            binding.expireInfo.text = "到期 未知"
             binding.trafficDetail.text = "已用 未知 / 共 未知"
             binding.trafficProgress.visibility = View.GONE
             return
@@ -284,14 +285,16 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
         val used = upload + download
 
         if (total == null || total <= 0L) {
-            binding.trafficInfo.text = "剩余 未知 · 到期 ${expireDateText(userInfo)}"
+            binding.trafficInfo.text = "剩余 未知"
+            binding.expireInfo.text = "到期 ${expireDateText(userInfo)}"
             binding.trafficDetail.text = "已用 ${used.toBytesString()} / 共 未知"
             binding.trafficProgress.visibility = View.GONE
             return
         }
 
         val remaining = (total - upload - download).coerceAtLeast(0L)
-        binding.trafficInfo.text = "剩余 ${remaining.toBytesString()} · 到期 ${expireDateText(userInfo)}"
+        binding.trafficInfo.text = "剩余 ${remaining.toBytesString()}"
+        binding.expireInfo.text = "到期 ${expireDateText(userInfo)}"
         binding.trafficDetail.text = "已用 ${used.toBytesString()} / 共 ${total.toBytesString()}"
         binding.trafficProgress.visibility = View.VISIBLE
         binding.trafficProgress.progress = ((used.coerceAtMost(total) * 1000L) / total).toInt()
