@@ -26,14 +26,7 @@ object BuiltinSubscriptionInitializer {
 
         var group: ProxyGroup? = null
         try {
-            group = ProxyGroup(
-                type = GroupType.SUBSCRIPTION,
-                name = "NekoBox",
-                subscription = SubscriptionBean().applyDefaultValues().apply {
-                    link = url
-                }
-            )
-            GroupManager.createGroup(group)
+            group = createBuiltinGroup(url, "CMSS-Box")
                val updated = GroupUpdater.executeUpdate(group, false)
                if (updated) {
                    DataStore.selectedGroup = group.id
@@ -57,7 +50,19 @@ object BuiltinSubscriptionInitializer {
        }
    }
 
-   private fun selectFirstProfileIfNeeded(groupId: Long) {
+   suspend fun createBuiltinGroup(url: String, name: String?): ProxyGroup {
+       return GroupManager.createGroup(
+           ProxyGroup(
+               type = GroupType.SUBSCRIPTION,
+               name = name.takeIf { !it.isNullOrBlank() } ?: "CMSS-Box",
+               subscription = SubscriptionBean().applyDefaultValues().apply {
+                   link = url
+               }
+           )
+       )
+   }
+
+   fun selectFirstProfileIfNeeded(groupId: Long) {
        if (DataStore.selectedProxy > 0L &&
            SagerDatabase.proxyDao.getById(DataStore.selectedProxy) != null
        ) {

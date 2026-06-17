@@ -70,6 +70,10 @@ object Key {
     const val PROFILE_GROUP = "profileGroup"
     const val PROFILE_CURRENT = "profileCurrent"
     const val BUILTIN_SUB_INITIALIZED = "builtinSubInitialized"
+    const val REMOTE_CONFIG_CURRENT_SUB_URL = "remote_config_current_sub_url"
+    const val REMOTE_CONFIG_LAST_FETCH_TIME = "remote_config_last_fetch_time"
+    const val REMOTE_CONFIG_VERSION = "remote_config_version"
+    const val REMOTE_CONFIG_UPDATE_INTERVAL_MINUTES = "remote_config_update_interval_minutes"
 
     const val SERVER_ADDRESS = "serverAddress"
     const val SERVER_PORT = "serverPort"

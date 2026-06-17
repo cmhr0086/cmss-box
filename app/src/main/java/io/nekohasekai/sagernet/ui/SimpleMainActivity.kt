@@ -25,6 +25,7 @@ import io.nekohasekai.sagernet.database.SagerDatabase
 import io.nekohasekai.sagernet.databinding.LayoutSimpleMainBinding
 import io.nekohasekai.sagernet.group.BuiltinSubscriptionInitializer
 import io.nekohasekai.sagernet.group.GroupUpdater
+import io.nekohasekai.sagernet.group.RemoteConfigSubscriptionManager
 import io.nekohasekai.sagernet.ktx.onMainDispatcher
 import io.nekohasekai.sagernet.ktx.readableMessage
 import io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher
@@ -86,11 +87,16 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
         connection.connect(this, this)
         GroupManager.addListener(this)
         runOnDefaultDispatcher {
-            BuiltinSubscriptionInitializer.initializeIfNeeded()
+            val remoteResult = RemoteConfigSubscriptionManager.checkAndUpdate(false)
+            if (!remoteResult.updated) {
+                BuiltinSubscriptionInitializer.initializeIfNeeded()
+                if (!remoteResult.configured) {
+                    updateCurrentSubscriptionGroup(true)
+                }
+            }
             onMainDispatcher {
                 updateLatencyFromSelectedProfile()
                 updateSubscriptionInfo()
-                updateCurrentSubscription(true)
             }
         }
     }
@@ -331,30 +337,49 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
 
     private fun updateCurrentSubscription(throttled: Boolean) {
         if (subscriptionUpdateJob?.isActive == true) return
-        val group = currentSubscriptionGroup() ?: return
-        val subscription = group.subscription ?: return
-        if (throttled) {
-            val now = (System.currentTimeMillis() / 1000L).toInt()
-            if (now - subscription.lastUpdated < 10 * 60) return
-        }
 
         binding.updateSubscriptionButton.isEnabled = false
         binding.updateSubscriptionButton.text = "更新中"
         subscriptionUpdateJob = runOnDefaultDispatcher {
-            val success = runCatching {
-                GroupUpdater.executeUpdate(group, false)
-            }.getOrElse { false }
+            val remoteResult = RemoteConfigSubscriptionManager.checkAndUpdate(!throttled)
+            val success = when {
+                remoteResult.updated -> true
+                remoteResult.configured && !remoteResult.failed -> true
+                else -> updateCurrentSubscriptionGroup(throttled)
+            }
+            val remoteFailure = remoteResult.configured && remoteResult.failed
 
             onMainDispatcher {
                 binding.updateSubscriptionButton.isEnabled = true
                 binding.updateSubscriptionButton.text = "更新"
                 updateSubscriptionInfo()
-                if (!success && !throttled) {
-                    Toast.makeText(this@SimpleMainActivity, "订阅更新失败", Toast.LENGTH_SHORT)
+                when {
+                    remoteFailure && !throttled -> Toast.makeText(
+                        this@SimpleMainActivity,
+                        "远程配置获取失败",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    !success && !throttled -> Toast.makeText(
+                        this@SimpleMainActivity,
+                        "订阅更新失败",
+                        Toast.LENGTH_SHORT
+                    )
                         .show()
                 }
             }
         }
+    }
+
+    private suspend fun updateCurrentSubscriptionGroup(throttled: Boolean): Boolean {
+        val group = currentSubscriptionGroup() ?: return false
+        val subscription = group.subscription ?: return false
+        if (throttled) {
+            val now = (System.currentTimeMillis() / 1000L).toInt()
+            if (now - subscription.lastUpdated < 10 * 60) return true
+        }
+        return runCatching {
+            GroupUpdater.executeUpdate(group, false)
+        }.getOrElse { false }
     }
 
     override fun stateChanged(state: BaseService.State, profileName: String?, msg: String?) {
