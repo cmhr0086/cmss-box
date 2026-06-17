@@ -4,8 +4,8 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fillViewport="true"
-    android:background="?android:windowBackground">
+    android:background="@drawable/simple_main_background"
+    android:fillViewport="true">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -23,7 +23,7 @@
             android:layout_height="wrap_content"
             android:gravity="center"
             android:text="NekoBox"
-            android:textColor="?android:textColorPrimary"
+            android:textColor="@color/simple_text_primary"
             android:textSize="34sp"
             android:textStyle="bold" />
 
@@ -34,23 +34,38 @@
             android:layout_marginTop="52dp"
             android:gravity="center"
             android:text="未连接"
-            android:textColor="?android:textColorPrimary"
+            android:textColor="@color/simple_text_primary"
             android:textSize="30sp"
             android:textStyle="bold"
             tools:text="未连接" />
+
+        <TextView
+            android:id="@+id/status_description"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:gravity="center"
+            android:text="轻触连接网络"
+            android:textColor="@color/simple_text_secondary"
+            android:textSize="17sp"
+            tools:text="轻触连接网络" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/connect_button"
             android:layout_width="220dp"
             android:layout_height="220dp"
             android:layout_marginTop="44dp"
+            android:background="@drawable/simple_power_button_bg"
+            android:gravity="center"
             android:insetLeft="0dp"
             android:insetTop="0dp"
             android:insetRight="0dp"
             android:insetBottom="0dp"
             android:text="连接"
+            android:textColor="@color/simple_text_primary"
             android:textSize="32sp"
             android:textStyle="bold"
+            app:backgroundTint="@color/simple_button_idle"
             app:cornerRadius="110dp" />
 
         <LinearLayout
@@ -59,31 +74,88 @@
             android:layout_marginTop="56dp"
             android:orientation="vertical">
 
-            <TextView
-                android:id="@+id/latency_info"
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="延迟：--"
-                android:textColor="?android:textColorPrimary"
-                android:textSize="20sp" />
+                android:background="@drawable/simple_info_card_bg"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:padding="20dp">
 
-            <TextView
-                android:id="@+id/traffic_info"
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="延迟"
+                    android:textColor="@color/simple_text_secondary"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:id="@+id/latency_info"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="--"
+                    android:textColor="@color/simple_text_primary"
+                    android:textSize="22sp"
+                    android:textStyle="bold" />
+
+            </LinearLayout>
+
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="18dp"
-                android:text="剩余流量：未知"
-                android:textColor="?android:textColorPrimary"
-                android:textSize="20sp" />
+                android:background="@drawable/simple_info_card_bg"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:padding="20dp">
 
-            <TextView
-                android:id="@+id/expire_info"
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="剩余流量"
+                    android:textColor="@color/simple_text_secondary"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:id="@+id/traffic_info"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="未知"
+                    android:textColor="@color/simple_text_primary"
+                    android:textSize="22sp"
+                    android:textStyle="bold" />
+
+            </LinearLayout>
+
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="18dp"
-                android:text="到期时间：未知"
-                android:textColor="?android:textColorPrimary"
-                android:textSize="20sp" />
+                android:background="@drawable/simple_info_card_bg"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:padding="20dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="到期时间"
+                    android:textColor="@color/simple_text_secondary"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:id="@+id/expire_info"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="未知"
+                    android:textColor="@color/simple_text_primary"
+                    android:textSize="22sp"
+                    android:textStyle="bold" />
+
+            </LinearLayout>
 
         </LinearLayout>
 
