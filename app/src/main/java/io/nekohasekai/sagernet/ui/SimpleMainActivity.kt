@@ -28,6 +28,7 @@ import io.nekohasekai.sagernet.group.GroupUpdater
 import io.nekohasekai.sagernet.ktx.onMainDispatcher
 import io.nekohasekai.sagernet.ktx.readableMessage
 import io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import moe.matsuri.nb4a.utils.toBytesString
 import java.text.SimpleDateFormat
@@ -38,6 +39,7 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
 
     private lateinit var binding: LayoutSimpleMainBinding
     private var lastFailureMessage: String? = null
+    private var connectionActionJob: Job? = null
     private var latencyTestJob: Job? = null
     private var subscriptionUpdateJob: Job? = null
     private var autoLatencyTestDone = false
@@ -66,10 +68,7 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
         }
 
         binding.connectButton.setOnClickListener {
-            when {
-                DataStore.serviceState.canStop -> SagerNet.stopService()
-                else -> startSelectedProfile()
-            }
+            startConnectionActionWithDelay()
         }
         binding.latencyCard.setOnClickListener {
             startLatencyTest()
@@ -92,6 +91,24 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
                 updateLatencyFromSelectedProfile()
                 updateSubscriptionInfo()
                 updateCurrentSubscription(true)
+            }
+        }
+    }
+
+    private fun startConnectionActionWithDelay() {
+        if (connectionActionJob?.isActive == true) return
+        val shouldStop = DataStore.serviceState.canStop
+        updateConnectionState(
+            if (shouldStop) BaseService.State.Stopping else BaseService.State.Connecting
+        )
+        connectionActionJob = runOnDefaultDispatcher {
+            delay(1000)
+            onMainDispatcher {
+                if (shouldStop) {
+                    if (DataStore.serviceState.canStop) SagerNet.stopService()
+                } else {
+                    if (!DataStore.serviceState.canStop) startSelectedProfile()
+                }
             }
         }
     }
@@ -293,11 +310,18 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
         }
 
         val remaining = (total - upload - download).coerceAtLeast(0L)
+        val progress = ((used.coerceAtMost(total) * 1000L) / total).toInt()
         binding.trafficInfo.text = "剩余 ${remaining.toBytesString()}"
         binding.expireInfo.text = "到期 ${expireDateText(userInfo)}"
         binding.trafficDetail.text = "已用 ${used.toBytesString()} / 共 ${total.toBytesString()}"
         binding.trafficProgress.visibility = View.VISIBLE
-        binding.trafficProgress.progress = ((used.coerceAtMost(total) * 1000L) / total).toInt()
+        binding.trafficProgress.progress = progress
+        binding.trafficProgress.progressTintList = ColorStateList.valueOf(
+            ContextCompat.getColor(
+                this,
+                if (progress >= 900) R.color.material_red_500 else R.color.simple_accent_green
+            )
+        )
     }
 
     private fun expireDateText(userInfo: String): String {
@@ -434,6 +458,7 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
     }
 
     override fun onDestroy() {
+        connectionActionJob?.cancel()
         latencyTestJob?.cancel()
         subscriptionUpdateJob?.cancel()
         GroupManager.removeListener(this)
