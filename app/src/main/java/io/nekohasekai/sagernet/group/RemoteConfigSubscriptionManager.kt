@@ -19,7 +19,8 @@ object RemoteConfigSubscriptionManager {
         val configured: Boolean,
         val updated: Boolean,
         val skipped: Boolean = false,
-        val errorMessage: String? = null
+        val errorMessage: String? = null,
+        val groupId: Long = 0L
     ) {
         val failed: Boolean get() = errorMessage != null
     }
@@ -33,6 +34,33 @@ object RemoteConfigSubscriptionManager {
     )
 
     suspend fun checkAndUpdate(force: Boolean): Result {
+        val synced = syncRemoteConfigOnly(force)
+        if (!synced.configured || synced.failed || synced.skipped) return synced
+
+        val group = SagerDatabase.groupDao.getById(synced.groupId)
+            ?: return Result(
+                configured = true,
+                updated = false,
+                errorMessage = "订阅分组不存在",
+                groupId = synced.groupId
+            )
+
+        val updated = GroupUpdater.executeUpdate(group, false)
+        if (!updated) {
+            return Result(
+                configured = true,
+                updated = false,
+                errorMessage = "订阅更新失败",
+                groupId = group.id
+            )
+        }
+
+        BuiltinSubscriptionInitializer.selectFirstProfileIfNeeded(group.id)
+
+        return Result(configured = true, updated = true, groupId = group.id)
+    }
+
+    suspend fun syncRemoteConfigOnly(force: Boolean): Result {
         val configUrl = BuildConfig.REMOTE_CONFIG_URL.trim()
         if (configUrl.isBlank()) return Result(configured = false, updated = false, skipped = true)
 
@@ -82,9 +110,8 @@ object RemoteConfigSubscriptionManager {
         DataStore.remoteConfigVersion = config.version
         DataStore.remoteConfigUpdateIntervalMinutes = config.updateIntervalMinutes
         DataStore.selectedGroup = group.id
-        BuiltinSubscriptionInitializer.selectFirstProfileIfNeeded(group.id)
 
-        return Result(configured = true, updated = true)
+        return Result(configured = true, updated = true, groupId = group.id)
     }
 
     private fun fetchConfig(configUrl: String): RemoteConfig {
