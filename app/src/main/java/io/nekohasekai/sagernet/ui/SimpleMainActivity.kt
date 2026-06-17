@@ -7,6 +7,8 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.databinding.LayoutSimpleMainBinding
+import io.nekohasekai.sagernet.group.BuiltinSubscriptionInitializer
+import io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher
 
 class SimpleMainActivity : ThemedActivity() {
 
@@ -31,6 +33,9 @@ class SimpleMainActivity : ThemedActivity() {
         }
 
         updateConnectionState()
+        runOnDefaultDispatcher {
+            BuiltinSubscriptionInitializer.initializeIfNeeded()
+        }
     }
 
     private fun updateConnectionState() {

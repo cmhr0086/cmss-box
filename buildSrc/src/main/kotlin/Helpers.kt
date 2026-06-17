@@ -144,12 +144,16 @@ fun Project.setupApp() {
     val pkgName = requireMetadata().getProperty("PACKAGE_NAME")
     val verName = requireMetadata().getProperty("VERSION_NAME")
     val verCode = (requireMetadata().getProperty("VERSION_CODE").toInt()) * 5
+    val builtInSubUrl = requireLocalProperties().getProperty("BUILTIN_SUB_URL")
+        ?: System.getenv("BUILTIN_SUB_URL")
+        ?: ""
     android.apply {
         defaultConfig {
             applicationId = pkgName
             versionCode = verCode
             versionName = verName
             buildConfigField("String", "PRE_VERSION_NAME", "\"\"")
+            buildConfigField("String", "BUILTIN_SUB_URL", "\"${builtInSubUrl.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
         }
     }
     setupAppCommon()

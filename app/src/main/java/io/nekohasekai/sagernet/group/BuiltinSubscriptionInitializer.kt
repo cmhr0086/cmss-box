@@ -1,0 +1,64 @@
+package io.nekohasekai.sagernet.group
+
+import io.nekohasekai.sagernet.BuildConfig
+import io.nekohasekai.sagernet.GroupType
+import io.nekohasekai.sagernet.database.DataStore
+import io.nekohasekai.sagernet.database.GroupManager
+import io.nekohasekai.sagernet.database.ProxyGroup
+import io.nekohasekai.sagernet.database.SagerDatabase
+import io.nekohasekai.sagernet.database.SubscriptionBean
+import io.nekohasekai.sagernet.ktx.Logs
+import io.nekohasekai.sagernet.ktx.applyDefaultValues
+import io.nekohasekai.sagernet.ktx.readableMessage
+
+object BuiltinSubscriptionInitializer {
+
+    suspend fun initializeIfNeeded() {
+        val url = BuildConfig.BUILTIN_SUB_URL.trim()
+        if (url.isBlank()) return
+        if (DataStore.builtinSubInitialized) return
+
+        if (hasUserConfiguration()) {
+            DataStore.builtinSubInitialized = true
+            Logs.d("builtin subscription skipped: user configuration exists")
+            return
+        }
+
+        var group: ProxyGroup? = null
+        try {
+            group = ProxyGroup(
+                type = GroupType.SUBSCRIPTION,
+                name = "NekoBox",
+                subscription = SubscriptionBean().applyDefaultValues().apply {
+                    link = url
+                }
+            )
+            GroupManager.createGroup(group)
+            val updated = GroupUpdater.executeUpdate(group, false)
+            if (updated) {
+                DataStore.selectedGroup = group.id
+                DataStore.builtinSubInitialized = true
+                Logs.d("builtin subscription initialized")
+            } else {
+                cleanupFailedGroup(group)
+                Logs.w("builtin subscription update failed")
+            }
+        } catch (e: Throwable) {
+            group?.let { cleanupFailedGroup(it) }
+            Logs.w("builtin subscription init failed: ${e.readableMessage}", e)
+        }
+    }
+
+    private fun hasUserConfiguration(): Boolean {
+        if (SagerDatabase.proxyDao.getAll().isNotEmpty()) return true
+        return SagerDatabase.groupDao.allGroups().any {
+            !it.ungrouped || it.type == GroupType.SUBSCRIPTION
+        }
+    }
+
+    private suspend fun cleanupFailedGroup(group: ProxyGroup) {
+        if (group.id > 0L) {
+            GroupManager.deleteGroup(group.id)
+        }
+    }
+}

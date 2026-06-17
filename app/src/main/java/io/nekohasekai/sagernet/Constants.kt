@@ -69,6 +69,7 @@ object Key {
     const val PROFILE_NAME = "profileName"
     const val PROFILE_GROUP = "profileGroup"
     const val PROFILE_CURRENT = "profileCurrent"
+    const val BUILTIN_SUB_INITIALIZED = "builtinSubInitialized"
 
     const val SERVER_ADDRESS = "serverAddress"
     const val SERVER_PORT = "serverPort"
