@@ -1,89 +1,140 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@drawable/simple_main_background"
-    android:fillViewport="true">
+    android:gravity="center_horizontal"
+    android:orientation="vertical"
+    android:paddingStart="28dp"
+    android:paddingTop="38dp"
+    android:paddingEnd="28dp"
+    android:paddingBottom="28dp">
+
+    <TextView
+        android:id="@+id/app_title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:text="NekoBox"
+        android:textColor="@color/simple_text_primary"
+        android:textSize="30sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/connection_status"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="30dp"
+        android:gravity="center"
+        android:text="未连接"
+        android:textColor="@color/simple_text_primary"
+        android:textSize="27sp"
+        android:textStyle="bold"
+        tools:text="未连接" />
+
+    <TextView
+        android:id="@+id/status_description"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:gravity="center"
+        android:text="轻触连接网络"
+        android:textColor="@color/simple_text_secondary"
+        android:textSize="15sp"
+        tools:text="轻触连接网络" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/connect_button"
+        android:layout_width="198dp"
+        android:layout_height="198dp"
+        android:layout_marginTop="30dp"
+        android:background="@drawable/simple_power_button_bg"
+        android:gravity="center"
+        android:insetLeft="0dp"
+        android:insetTop="0dp"
+        android:insetRight="0dp"
+        android:insetBottom="0dp"
+        android:text="连接"
+        android:textColor="@color/simple_text_primary"
+        android:textSize="29sp"
+        android:textStyle="bold"
+        app:backgroundTint="@color/simple_button_idle"
+        app:cornerRadius="99dp" />
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:gravity="center_horizontal"
-        android:orientation="vertical"
-        android:paddingStart="32dp"
-        android:paddingTop="72dp"
-        android:paddingEnd="32dp"
-        android:paddingBottom="48dp">
-
-        <TextView
-            android:id="@+id/app_title"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:gravity="center"
-            android:text="NekoBox"
-            android:textColor="@color/simple_text_primary"
-            android:textSize="34sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/connection_status"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="52dp"
-            android:gravity="center"
-            android:text="未连接"
-            android:textColor="@color/simple_text_primary"
-            android:textSize="30sp"
-            android:textStyle="bold"
-            tools:text="未连接" />
-
-        <TextView
-            android:id="@+id/status_description"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:gravity="center"
-            android:text="轻触连接网络"
-            android:textColor="@color/simple_text_secondary"
-            android:textSize="17sp"
-            tools:text="轻触连接网络" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/connect_button"
-            android:layout_width="220dp"
-            android:layout_height="220dp"
-            android:layout_marginTop="44dp"
-            android:background="@drawable/simple_power_button_bg"
-            android:gravity="center"
-            android:insetLeft="0dp"
-            android:insetTop="0dp"
-            android:insetRight="0dp"
-            android:insetBottom="0dp"
-            android:text="连接"
-            android:textColor="@color/simple_text_primary"
-            android:textSize="32sp"
-            android:textStyle="bold"
-            app:backgroundTint="@color/simple_button_idle"
-            app:cornerRadius="110dp" />
+        android:layout_marginTop="34dp"
+        android:orientation="vertical">
 
         <LinearLayout
+            android:id="@+id/latency_card"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="56dp"
-            android:orientation="vertical">
+            android:background="@drawable/simple_info_card_bg"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="18dp"
+            android:paddingTop="16dp"
+            android:paddingEnd="18dp"
+            android:paddingBottom="16dp">
 
             <LinearLayout
-                android:id="@+id/latency_card"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="延迟测速"
+                    android:textColor="@color/simple_text_primary"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:text="点击重新测速"
+                    android:textColor="@color/simple_text_secondary"
+                    android:textSize="12sp" />
+
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/latency_info"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="--"
+                android:textColor="@color/simple_text_primary"
+                android:textSize="21sp"
+                android:textStyle="bold" />
+
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/traffic_card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:background="@drawable/simple_info_card_bg"
+            android:orientation="vertical"
+            android:paddingStart="18dp"
+            android:paddingTop="16dp"
+            android:paddingEnd="18dp"
+            android:paddingBottom="16dp">
+
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:background="@drawable/simple_info_card_bg"
-                android:clickable="true"
-                android:focusable="true"
                 android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:padding="20dp">
+                android:orientation="horizontal">
 
                 <LinearLayout
                     android:layout_width="0dp"
@@ -94,140 +145,59 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="延迟测速"
+                        android:text="流量使用"
                         android:textColor="@color/simple_text_primary"
                         android:textSize="16sp"
                         android:textStyle="bold" />
 
                     <TextView
+                        android:id="@+id/traffic_detail"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        android:text="点击重新测速"
+                        android:layout_marginTop="3dp"
+                        android:text="已用 未知 / 共 未知"
                         android:textColor="@color/simple_text_secondary"
-                        android:textSize="13sp" />
+                        android:textSize="12sp" />
 
                 </LinearLayout>
 
-                <TextView
-                    android:id="@+id/latency_info"
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/update_subscription_button"
                     android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="--"
+                    android:layout_height="36dp"
+                    android:minWidth="72dp"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp"
+                    android:text="更新"
                     android:textColor="@color/simple_text_primary"
-                    android:textSize="22sp"
-                    android:textStyle="bold" />
+                    android:textSize="14sp"
+                    app:backgroundTint="@color/simple_button_idle"
+                    app:cornerRadius="20dp" />
 
             </LinearLayout>
 
-            <LinearLayout
-                android:id="@+id/traffic_card"
-                android:layout_width="match_parent"
+            <TextView
+                android:id="@+id/traffic_info"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="18dp"
-                android:background="@drawable/simple_info_card_bg"
-                android:orientation="vertical"
-                android:padding="20dp">
+                android:layout_marginTop="10dp"
+                android:text="剩余 未知 · 到期 未知"
+                android:textColor="@color/simple_text_secondary"
+                android:textSize="13sp" />
 
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="剩余流量"
-                            android:textColor="@color/simple_text_primary"
-                            android:textSize="16sp"
-                            android:textStyle="bold" />
-
-                        <TextView
-                            android:id="@+id/traffic_detail"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="4dp"
-                            android:text="已用 未知 / 共 未知"
-                            android:textColor="@color/simple_text_secondary"
-                            android:textSize="13sp" />
-
-                    </LinearLayout>
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/update_subscription_button"
-                        android:layout_width="wrap_content"
-                        android:layout_height="40dp"
-                        android:minWidth="72dp"
-                        android:paddingStart="16dp"
-                        android:paddingEnd="16dp"
-                        android:text="更新"
-                        android:textColor="@color/simple_text_primary"
-                        android:textSize="14sp"
-                        app:backgroundTint="@color/simple_button_idle"
-                        app:cornerRadius="20dp" />
-
-                </LinearLayout>
-
-                <TextView
-                    android:id="@+id/traffic_info"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:visibility="gone"
-                    android:text="未知"
-                    android:textColor="@color/simple_text_primary"
-                    android:textSize="22sp"
-                    android:textStyle="bold" />
-
-                <ProgressBar
-                    android:id="@+id/traffic_progress"
-                    style="?android:attr/progressBarStyleHorizontal"
-                    android:layout_width="match_parent"
-                    android:layout_height="6dp"
-                    android:layout_marginTop="12dp"
-                    android:max="1000"
-                    android:progress="0"
-                    android:progressTint="@color/simple_accent_green"
-                    android:progressBackgroundTint="@color/simple_card_stroke" />
-
-            </LinearLayout>
-
-            <LinearLayout
+            <ProgressBar
+                android:id="@+id/traffic_progress"
+                style="?android:attr/progressBarStyleHorizontal"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="18dp"
-                android:background="@drawable/simple_info_card_bg"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:padding="20dp">
-
-                <TextView
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="到期时间"
-                    android:textColor="@color/simple_text_secondary"
-                    android:textSize="16sp" />
-
-                <TextView
-                    android:id="@+id/expire_info"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="未知"
-                    android:textColor="@color/simple_text_primary"
-                    android:textSize="22sp"
-                    android:textStyle="bold" />
-
-            </LinearLayout>
+                android:layout_height="6dp"
+                android:layout_marginTop="10dp"
+                android:max="1000"
+                android:progress="0"
+                android:progressTint="@color/simple_accent_green"
+                android:progressBackgroundTint="@color/simple_card_stroke" />
 
         </LinearLayout>
 
     </LinearLayout>
 
-</ScrollView>
+</LinearLayout>
