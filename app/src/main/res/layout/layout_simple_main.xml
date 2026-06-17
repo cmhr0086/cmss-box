@@ -75,9 +75,12 @@
             android:orientation="vertical">
 
             <LinearLayout
+                android:id="@+id/latency_card"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:background="@drawable/simple_info_card_bg"
+                android:clickable="true"
+                android:focusable="true"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
                 android:padding="20dp">
@@ -86,7 +89,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="延迟"
+                    android:text="当前节点"
                     android:textColor="@color/simple_text_secondary"
                     android:textSize="16sp" />
 
@@ -94,7 +97,7 @@
                     android:id="@+id/latency_info"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="--"
+                    android:text="延迟：--"
                     android:textColor="@color/simple_text_primary"
                     android:textSize="22sp"
                     android:textStyle="bold" />

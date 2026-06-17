@@ -14,18 +14,24 @@ import io.nekohasekai.sagernet.aidl.SpeedDisplayData
 import io.nekohasekai.sagernet.aidl.TrafficData
 import io.nekohasekai.sagernet.bg.BaseService
 import io.nekohasekai.sagernet.bg.SagerConnection
+import io.nekohasekai.sagernet.bg.proto.UrlTest
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.ProfileManager
+import io.nekohasekai.sagernet.database.ProxyEntity
 import io.nekohasekai.sagernet.database.SagerDatabase
 import io.nekohasekai.sagernet.databinding.LayoutSimpleMainBinding
 import io.nekohasekai.sagernet.group.BuiltinSubscriptionInitializer
 import io.nekohasekai.sagernet.ktx.onMainDispatcher
+import io.nekohasekai.sagernet.ktx.readableMessage
 import io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher
+import kotlinx.coroutines.Job
 
 class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback {
 
     private lateinit var binding: LayoutSimpleMainBinding
     private var lastFailureMessage: String? = null
+    private var latencyTestJob: Job? = null
+    private var autoLatencyTestDone = false
     private val connection = SagerConnection(
         SagerConnection.CONNECTION_ID_MAIN_ACTIVITY_FOREGROUND,
         true
@@ -56,16 +62,25 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback {
                 else -> startSelectedProfile()
             }
         }
+        binding.latencyCard.setOnClickListener {
+            startLatencyTest()
+        }
+        binding.latencyInfo.setOnClickListener {
+            startLatencyTest()
+        }
 
+        updateLatencyFromSelectedProfile()
         updateConnectionState(DataStore.serviceState)
         connection.connect(this, this)
         runOnDefaultDispatcher {
             BuiltinSubscriptionInitializer.initializeIfNeeded()
+            onMainDispatcher {
+                updateLatencyFromSelectedProfile()
+            }
         }
     }
 
     private fun startSelectedProfile() {
-        updateConnectionState(BaseService.State.Connecting)
         runOnDefaultDispatcher {
             val ready = ensureSelectedProfile()
             onMainDispatcher {
@@ -125,6 +140,10 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback {
                 binding.connectionStatus.text = "已连接"
                 binding.statusDescription.text = "网络已受保护"
                 binding.connectButton.text = "断开"
+                if (!autoLatencyTestDone) {
+                    autoLatencyTestDone = true
+                    startLatencyTest()
+                }
             }
 
             state == BaseService.State.Stopping -> {
@@ -137,6 +156,59 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback {
                 binding.connectionStatus.text = "未连接"
                 binding.statusDescription.text = "轻触连接网络"
                 binding.connectButton.text = "连接"
+                autoLatencyTestDone = false
+            }
+        }
+    }
+
+    private fun selectedProfile(): ProxyEntity? {
+        val selected = DataStore.selectedProxy
+        if (selected <= 0L) return null
+        return SagerDatabase.proxyDao.getById(selected)
+    }
+
+    private fun updateLatencyFromSelectedProfile() {
+        val profile = selectedProfile()
+        binding.latencyInfo.text = when {
+            profile == null -> "延迟：--"
+            profile.status == 1 && profile.ping > 0 -> "延迟：${profile.ping} ms"
+            profile.status == 2 || profile.status == 3 -> "延迟：超时"
+            else -> "延迟：--"
+        }
+    }
+
+    private fun startLatencyTest() {
+        if (latencyTestJob?.isActive == true) return
+        val profile = selectedProfile() ?: run {
+            binding.latencyInfo.text = "延迟：--"
+            return
+        }
+
+        binding.latencyInfo.text = "延迟：测试中..."
+        latencyTestJob = runOnDefaultDispatcher {
+            val result = try {
+                val elapsed = if (DataStore.serviceState.connected && connection.service != null) {
+                    connection.service!!.urlTest()
+                } else {
+                    UrlTest().doTest(profile)
+                }
+                profile.status = 1
+                profile.ping = elapsed
+                profile.error = null
+                ProfileManager.updateProfile(profile)
+                elapsed
+            } catch (e: Exception) {
+                profile.status = 3
+                profile.error = e.readableMessage
+                try {
+                    ProfileManager.updateProfile(profile)
+                } catch (_: Exception) {
+                }
+                null
+            }
+
+            onMainDispatcher {
+                binding.latencyInfo.text = result?.let { "延迟：$it ms" } ?: "延迟：超时"
             }
         }
     }
@@ -183,15 +255,31 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback {
         val old = DataStore.selectedProxy
         DataStore.selectedProxy = id
         DataStore.currentProfile = id
+        updateLatencyFromSelectedProfile()
         runOnDefaultDispatcher {
             ProfileManager.postUpdate(old, true)
             ProfileManager.postUpdate(id, true)
         }
     }
 
+    private fun refreshServiceState() {
+        val state = try {
+            connection.service?.let { BaseService.State.values()[it.state] }
+                ?: DataStore.serviceState
+        } catch (_: RemoteException) {
+            BaseService.State.Idle
+        }
+        if (state != BaseService.State.Stopped) {
+            lastFailureMessage = null
+        }
+        updateLatencyFromSelectedProfile()
+        updateConnectionState(state)
+    }
+
     override fun onStart() {
         connection.updateConnectionId(SagerConnection.CONNECTION_ID_MAIN_ACTIVITY_FOREGROUND)
         super.onStart()
+        refreshServiceState()
     }
 
     override fun onStop() {
@@ -200,6 +288,7 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback {
     }
 
     override fun onDestroy() {
+        latencyTestJob?.cancel()
         connection.disconnect(this)
         super.onDestroy()
     }
