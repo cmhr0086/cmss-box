@@ -37,3 +37,4 @@ release.keystore.*
 # cloudflare local state
 /cloudflare/**/.wrangler/
 /sync-to-cmss-box.ps1
+/sync-to-cmss-box.cmd
