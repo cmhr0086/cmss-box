@@ -15,12 +15,12 @@ jniLibs/
 /library/libcore_build/
 .idea/deploymentTargetDropDown.xml
 /nkmr
-/cloudflare/
 
 # local secrets
 .env
 .env.*
 *.keystore
+*.keystore.*
 *.jks
 *.p12
 *.pem
@@ -29,6 +29,10 @@ jniLibs/
 *.cer
 *.der
 release.keystore
+release.keystore.*
 
 # submodules
 /external
+
+# cloudflare local state
+/cloudflare/**/.wrangler/
