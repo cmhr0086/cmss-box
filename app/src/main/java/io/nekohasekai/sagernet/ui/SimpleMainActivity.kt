@@ -8,10 +8,8 @@ import android.view.View
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.SagerNet
 import io.nekohasekai.sagernet.aidl.ISagerNetService
@@ -26,7 +24,6 @@ import io.nekohasekai.sagernet.database.ProfileManager
 import io.nekohasekai.sagernet.database.ProxyEntity
 import io.nekohasekai.sagernet.database.ProxyGroup
 import io.nekohasekai.sagernet.database.SagerDatabase
-import io.nekohasekai.sagernet.databinding.DialogSubscriptionUpdateProgressBinding
 import io.nekohasekai.sagernet.databinding.LayoutSimpleMainBinding
 import io.nekohasekai.sagernet.group.BuiltinSubscriptionInitializer
 import io.nekohasekai.sagernet.group.GroupUpdater
@@ -35,6 +32,7 @@ import io.nekohasekai.sagernet.managed.ManagedSubscriptionCoordinator
 import io.nekohasekai.sagernet.ktx.onMainDispatcher
 import io.nekohasekai.sagernet.ktx.readableMessage
 import io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher
+import io.nekohasekai.sagernet.ui.dialog.SubscriptionUpdateProgressDialogFragment
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import moe.matsuri.nb4a.utils.toBytesString
@@ -416,39 +414,20 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
     private fun showSubscriptionUpdateDialog() {
         if (subscriptionUpdateJob?.isActive == true) return
 
-        val dialogBinding = DialogSubscriptionUpdateProgressBinding.inflate(layoutInflater)
-        val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_CMSS_SimpleDialog)
-            .setView(dialogBinding.root)
-            .create()
-
-        dialog.setCancelable(false)
-        dialogBinding.updateDialogClose.setOnClickListener {
-            dialog.dismiss()
-        }
-        setSubscriptionStepState(
-            dialogBinding.remoteStepDot,
-            dialogBinding.remoteStepProgress,
-            dialogBinding.remoteStepStatus,
-            UpdateStepState.Pending
-        )
-        setSubscriptionStepState(
-            dialogBinding.localStepDot,
-            dialogBinding.localStepProgress,
-            dialogBinding.localStepStatus,
-            UpdateStepState.Pending
-        )
-        dialog.show()
+        val dialog = SubscriptionUpdateProgressDialogFragment()
+        dialog.show(supportFragmentManager, SubscriptionUpdateProgressDialogFragment.TAG)
+        dialog.setSummary("准备更新...")
+        dialog.updateRemoteStep(SubscriptionUpdateProgressDialogFragment.StepState.Pending)
+        dialog.updateLocalStep(SubscriptionUpdateProgressDialogFragment.StepState.Pending)
+        dialog.setClosable(false)
 
         binding.updateSubscriptionButton.isEnabled = false
         subscriptionUpdateJob = runOnDefaultDispatcher {
             onMainDispatcher {
-                dialogBinding.updateDialogSummary.text = "正在更新远端订阅配置"
-                setSubscriptionStepState(
-                    dialogBinding.remoteStepDot,
-                    dialogBinding.remoteStepProgress,
-                    dialogBinding.remoteStepStatus,
-                    UpdateStepState.Running
-                )
+                findUpdateDialog()?.apply {
+                    setSummary("正在更新远端订阅配置")
+                    updateRemoteStep(SubscriptionUpdateProgressDialogFragment.StepState.Running)
+                }
             }
 
             val managed = ManagedSubscriptionCoordinator.isActivated
@@ -465,15 +444,14 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
             if (!remoteConfigured) {
                 val message = remoteFailure ?: "远程配置未配置"
                 onMainDispatcher {
-                    dialogBinding.updateDialogSummary.text = "更新失败"
-                    setSubscriptionStepState(
-                        dialogBinding.remoteStepDot,
-                        dialogBinding.remoteStepProgress,
-                        dialogBinding.remoteStepStatus,
-                        UpdateStepState.Failed,
-                        message
-                    )
-                    finishSubscriptionUpdateDialog(dialog, dialogBinding)
+                    findUpdateDialog()?.apply {
+                        setSummary("更新失败")
+                        updateRemoteStep(
+                            SubscriptionUpdateProgressDialogFragment.StepState.Failed,
+                            message
+                        )
+                        setClosable(true)
+                    }
                     binding.updateSubscriptionButton.isEnabled = true
                     Toast.makeText(this@SimpleMainActivity, "远程配置获取失败", Toast.LENGTH_SHORT)
                         .show()
@@ -482,19 +460,11 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
             }
 
             onMainDispatcher {
-                setSubscriptionStepState(
-                    dialogBinding.remoteStepDot,
-                    dialogBinding.remoteStepProgress,
-                    dialogBinding.remoteStepStatus,
-                    UpdateStepState.Done
-                )
-                dialogBinding.updateDialogSummary.text = "正在拉取本地订阅内容"
-                setSubscriptionStepState(
-                    dialogBinding.localStepDot,
-                    dialogBinding.localStepProgress,
-                    dialogBinding.localStepStatus,
-                    UpdateStepState.Running
-                )
+                findUpdateDialog()?.apply {
+                    updateRemoteStep(SubscriptionUpdateProgressDialogFragment.StepState.Done)
+                    setSummary("正在拉取本地订阅内容")
+                    updateLocalStep(SubscriptionUpdateProgressDialogFragment.StepState.Running)
+                }
             }
 
             val localUpdated = if (managed) {
@@ -504,75 +474,34 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
             }
             onMainDispatcher {
                 if (localUpdated) {
-                    setSubscriptionStepState(
-                        dialogBinding.localStepDot,
-                        dialogBinding.localStepProgress,
-                        dialogBinding.localStepStatus,
-                        UpdateStepState.Done
-                    )
-                    dialogBinding.updateDialogSummary.text = "更新完成"
+                    findUpdateDialog()?.apply {
+                        updateLocalStep(SubscriptionUpdateProgressDialogFragment.StepState.Done)
+                        setSummary("更新完成")
+                        setClosable(true)
+                    }
                     updateLatencyFromSelectedProfile()
                     updateSubscriptionInfo()
                 } else {
-                    setSubscriptionStepState(
-                        dialogBinding.localStepDot,
-                        dialogBinding.localStepProgress,
-                        dialogBinding.localStepStatus,
-                        UpdateStepState.Failed,
-                        "订阅更新失败"
-                    )
-                    dialogBinding.updateDialogSummary.text = "更新失败"
+                    findUpdateDialog()?.apply {
+                        updateLocalStep(
+                            SubscriptionUpdateProgressDialogFragment.StepState.Failed,
+                            "订阅更新失败"
+                        )
+                        setSummary("更新失败")
+                        setClosable(true)
+                    }
                     Toast.makeText(this@SimpleMainActivity, "订阅更新失败", Toast.LENGTH_SHORT)
                         .show()
                 }
-                finishSubscriptionUpdateDialog(dialog, dialogBinding)
                 binding.updateSubscriptionButton.isEnabled = true
             }
         }
     }
 
-    private fun finishSubscriptionUpdateDialog(
-        dialog: AlertDialog,
-        dialogBinding: DialogSubscriptionUpdateProgressBinding
-    ) {
-        dialog.setCancelable(true)
-        dialogBinding.updateDialogClose.isEnabled = true
-    }
-
-    private fun setSubscriptionStepState(
-        dot: TextView,
-        progress: ProgressBar,
-        status: TextView,
-        state: UpdateStepState,
-        message: String? = null
-    ) {
-        val colorRes = when (state) {
-            UpdateStepState.Pending -> R.color.simple_card_stroke
-            UpdateStepState.Running -> R.color.simple_accent_green
-            UpdateStepState.Done -> R.color.simple_accent_green
-            UpdateStepState.Failed -> R.color.material_red_500
-        }
-        val textColorRes = when (state) {
-            UpdateStepState.Pending -> R.color.simple_text_secondary
-            UpdateStepState.Running -> R.color.simple_text_primary
-            UpdateStepState.Done -> R.color.simple_text_primary
-            UpdateStepState.Failed -> R.color.material_red_500
-        }
-
-        dot.backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(this, colorRes))
-        dot.text = when (state) {
-            UpdateStepState.Done -> "✓"
-            UpdateStepState.Failed -> "!"
-            else -> ""
-        }
-        progress.visibility = if (state == UpdateStepState.Running) View.VISIBLE else View.GONE
-        status.text = message ?: when (state) {
-            UpdateStepState.Pending -> "等待中"
-            UpdateStepState.Running -> "进行中..."
-            UpdateStepState.Done -> "已完成"
-            UpdateStepState.Failed -> "失败"
-        }
-        status.setTextColor(ContextCompat.getColor(this, textColorRes))
+    private fun findUpdateDialog(): SubscriptionUpdateProgressDialogFragment? {
+        return supportFragmentManager.findFragmentByTag(
+            SubscriptionUpdateProgressDialogFragment.TAG
+        ) as? SubscriptionUpdateProgressDialogFragment
     }
 
     private fun handleIntentAction(intent: Intent?) {

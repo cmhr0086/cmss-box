@@ -1,5 +1,17 @@
 <resources>
 
+    <style name="Theme_CMSS_SimpleDialog" parent="Theme.MaterialComponents.DayNight.Dialog">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsFloating">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="windowNoTitle">true</item>
+        <item name="backgroundTint">@android:color/transparent</item>
+        <item name="colorSurface">@color/simple_card_bg</item>
+        <item name="colorOnSurface">@color/simple_text_primary</item>
+        <item name="colorPrimary">@color/simple_accent_green</item>
+        <item name="colorSecondary">@color/simple_accent_green</item>
+    </style>
+
     <style name="ThemeOverlay_CMSS_SimpleDialog" parent="ThemeOverlay.MaterialComponents.MaterialAlertDialog">
         <item name="backgroundTint">@color/simple_card_bg</item>
         <item name="buttonBarPositiveButtonStyle">@style/Widget_CMSS_Dialog_TextButton</item>
