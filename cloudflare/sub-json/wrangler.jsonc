@@ -1,0 +1,21 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "sub-json",
+  "main": "src/index.js",
+  "compatibility_date": "2026-06-20",
+  "observability": { "enabled": true },
+  "kv_namespaces": [
+    {
+      "binding": "CONFIG_KV",
+      "id": "c6a518687c4b453abb6cb8f3fe1b9d87"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "cmss-device-config",
+      "database_id": "3feeedb0-92c7-44fd-8b0f-71c62f9ae2a8",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

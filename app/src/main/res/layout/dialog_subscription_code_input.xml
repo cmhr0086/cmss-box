@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingTop="8dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="请输入要在当前设备上验证的订阅码。"
+        android:textColor="@color/simple_text_secondary"
+        android:textSize="13sp" />
+
+    <com.google.android.material.textfield.TextInputLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:hint="订阅码"
+        app:boxBackgroundColor="@color/simple_bg_start"
+        app:boxBackgroundMode="outline"
+        app:boxCornerRadiusBottomEnd="18dp"
+        app:boxCornerRadiusBottomStart="18dp"
+        app:boxCornerRadiusTopEnd="18dp"
+        app:boxCornerRadiusTopStart="18dp"
+        app:boxStrokeColor="@color/simple_accent_green"
+        app:placeholderText="CMSS-XXXX-XXXX">
+
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/subscription_code_input"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="textCapCharacters"
+            android:maxLines="1"
+            android:paddingTop="16dp"
+            android:paddingBottom="16dp"
+            android:textColor="@color/simple_text_primary"
+            android:textColorHint="@color/simple_text_secondary" />
+
+    </com.google.android.material.textfield.TextInputLayout>
+
+</LinearLayout>

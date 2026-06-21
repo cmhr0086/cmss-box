@@ -23,7 +23,7 @@ import io.nekohasekai.sagernet.ktx.Logs
 import io.nekohasekai.sagernet.ktx.isOss
 import io.nekohasekai.sagernet.ktx.isPreview
 import io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher
-import io.nekohasekai.sagernet.ui.MainActivity
+import io.nekohasekai.sagernet.ui.SimpleMainActivity
 import io.nekohasekai.sagernet.utils.*
 import kotlinx.coroutines.DEBUG_PROPERTY_NAME
 import kotlinx.coroutines.DEBUG_PROPERTY_VALUE_ON
@@ -135,8 +135,8 @@ class SagerNet : Application(),
                     it,
                     0,
                     Intent(
-                        application, MainActivity::class.java
-                    ).setFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
+                        application, SimpleMainActivity::class.java
+                    ).setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
                 )
             }

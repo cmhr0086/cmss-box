@@ -91,18 +91,16 @@ object RemoteConfigSubscriptionManager {
         }
 
         val oldLink = group.subscription?.link.orEmpty()
+        var changed = false
         if (oldLink != config.subUrl) {
             group.subscription?.link = config.subUrl
             if (!config.subName.isNullOrBlank()) group.name = config.subName
             GroupManager.updateGroup(group)
+            changed = true
         } else if (!config.subName.isNullOrBlank() && group.name != config.subName) {
             group.name = config.subName
             GroupManager.updateGroup(group)
-        }
-
-        val updated = GroupUpdater.executeUpdate(group, false)
-        if (!updated) {
-            return Result(configured = true, updated = false, errorMessage = "订阅更新失败")
+            changed = true
         }
 
         DataStore.remoteConfigCurrentSubUrl = config.subUrl
@@ -111,7 +109,7 @@ object RemoteConfigSubscriptionManager {
         DataStore.remoteConfigUpdateIntervalMinutes = config.updateIntervalMinutes
         DataStore.selectedGroup = group.id
 
-        return Result(configured = true, updated = true, groupId = group.id)
+        return Result(configured = true, updated = changed, groupId = group.id)
     }
 
     private fun fetchConfig(configUrl: String): RemoteConfig {

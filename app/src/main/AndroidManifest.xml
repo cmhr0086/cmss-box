@@ -73,15 +73,26 @@
             android:configChanges="uiMode" />
 
         <activity
-            android:name="io.nekohasekai.sagernet.ui.SimpleMainActivity"
+            android:name="io.nekohasekai.sagernet.ui.ActivationActivity"
             android:configChanges="uiMode"
-            android:exported="true">
+            android:exported="true"
+            android:launchMode="singleTask">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name="io.nekohasekai.sagernet.ui.SimpleMainActivity"
+            android:configChanges="uiMode"
+            android:exported="false" />
+
+        <activity
+            android:name="io.nekohasekai.sagernet.ui.SimpleSettingsActivity"
+            android:configChanges="uiMode"
+            android:exported="false" />
 
         <activity
             android:name="io.nekohasekai.sagernet.ui.MainActivity"

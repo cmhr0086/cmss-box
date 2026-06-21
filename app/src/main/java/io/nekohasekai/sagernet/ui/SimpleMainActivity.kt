@@ -31,6 +31,7 @@ import io.nekohasekai.sagernet.databinding.LayoutSimpleMainBinding
 import io.nekohasekai.sagernet.group.BuiltinSubscriptionInitializer
 import io.nekohasekai.sagernet.group.GroupUpdater
 import io.nekohasekai.sagernet.group.RemoteConfigSubscriptionManager
+import io.nekohasekai.sagernet.managed.ManagedSubscriptionCoordinator
 import io.nekohasekai.sagernet.ktx.onMainDispatcher
 import io.nekohasekai.sagernet.ktx.readableMessage
 import io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher
@@ -42,6 +43,9 @@ import java.util.Date
 import java.util.Locale
 
 class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupManager.Listener {
+    companion object {
+        const val EXTRA_OPEN_UPDATE_DIALOG = "open_update_dialog"
+    }
 
     private lateinit var binding: LayoutSimpleMainBinding
     private var lastFailureMessage: String? = null
@@ -58,6 +62,21 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
             lastFailureMessage = null
             updateConnectionState(BaseService.State.Stopped)
             Toast.makeText(this, R.string.vpn_permission_denied, Toast.LENGTH_LONG).show()
+        }
+    }
+    private val settingsLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val data = result.data ?: return@registerForActivityResult
+        if (result.resultCode == RESULT_OK) {
+            if (data.getBooleanExtra(SimpleSettingsActivity.RESULT_OPEN_UPDATE_DIALOG, false)) {
+                showSubscriptionUpdateDialog()
+            }
+            if (data.getBooleanExtra(SimpleSettingsActivity.RESULT_REFRESH_HOME, false)) {
+                updateLatencyFromSelectedProfile()
+                updateSubscriptionInfo()
+                updateConnectionState(DataStore.serviceState)
+            }
         }
     }
 
@@ -79,6 +98,9 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
             startActivity(Intent(this, MainActivity::class.java))
             true
         }
+        binding.settingsButton.setOnClickListener {
+            settingsLauncher.launch(Intent(this, SimpleSettingsActivity::class.java))
+        }
 
         binding.connectButton.setOnClickListener {
             startConnectionActionWithDelay()
@@ -99,18 +121,27 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
         connection.connect(this, this)
         GroupManager.addListener(this)
         runOnDefaultDispatcher {
-            val remoteResult = RemoteConfigSubscriptionManager.checkAndUpdate(false)
-            if (!remoteResult.updated) {
-                BuiltinSubscriptionInitializer.initializeIfNeeded()
-                if (!remoteResult.configured) {
-                    updateCurrentSubscriptionGroup(true)
+            if (!ManagedSubscriptionCoordinator.isActivated) {
+                val remoteResult = RemoteConfigSubscriptionManager.checkAndUpdate(false)
+                if (!remoteResult.updated) {
+                    BuiltinSubscriptionInitializer.initializeIfNeeded()
+                    if (!remoteResult.configured) {
+                        updateCurrentSubscriptionGroup(true)
+                    }
                 }
             }
             onMainDispatcher {
                 updateLatencyFromSelectedProfile()
                 updateSubscriptionInfo()
+                handleIntentAction(intent)
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntentAction(intent)
     }
 
     private fun startConnectionActionWithDelay() {
@@ -386,7 +417,7 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
         if (subscriptionUpdateJob?.isActive == true) return
 
         val dialogBinding = DialogSubscriptionUpdateProgressBinding.inflate(layoutInflater)
-        val dialog = MaterialAlertDialogBuilder(this)
+        val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_CMSS_SimpleDialog)
             .setView(dialogBinding.root)
             .create()
 
@@ -420,9 +451,19 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
                 )
             }
 
-            val remoteResult = RemoteConfigSubscriptionManager.syncRemoteConfigOnly(true)
-            if (!remoteResult.configured || remoteResult.failed) {
-                val message = remoteResult.errorMessage ?: "远程配置未配置"
+            val managed = ManagedSubscriptionCoordinator.isActivated
+            val managedSync = if (managed) {
+                runCatching { ManagedSubscriptionCoordinator.syncConfigOnly() }
+            } else null
+            val remoteResult = if (!managed) {
+                RemoteConfigSubscriptionManager.syncRemoteConfigOnly(true)
+            } else null
+            val remoteFailure = managedSync?.exceptionOrNull()?.readableMessage
+                ?: remoteResult?.errorMessage
+            val remoteConfigured = managedSync?.isSuccess == true ||
+                    (remoteResult?.configured == true && !remoteResult.failed)
+            if (!remoteConfigured) {
+                val message = remoteFailure ?: "远程配置未配置"
                 onMainDispatcher {
                     dialogBinding.updateDialogSummary.text = "更新失败"
                     setSubscriptionStepState(
@@ -456,7 +497,11 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
                 )
             }
 
-            val localUpdated = updateCurrentSubscriptionGroup(false)
+            val localUpdated = if (managed) {
+                ManagedSubscriptionCoordinator.updateSubscription(managedSync!!.getOrThrow().groupId)
+            } else {
+                updateCurrentSubscriptionGroup(false)
+            }
             onMainDispatcher {
                 if (localUpdated) {
                     setSubscriptionStepState(
@@ -528,6 +573,13 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
             UpdateStepState.Failed -> "失败"
         }
         status.setTextColor(ContextCompat.getColor(this, textColorRes))
+    }
+
+    private fun handleIntentAction(intent: Intent?) {
+        if (intent?.getBooleanExtra(EXTRA_OPEN_UPDATE_DIALOG, false) == true) {
+            intent.removeExtra(EXTRA_OPEN_UPDATE_DIALOG)
+            showSubscriptionUpdateDialog()
+        }
     }
 
     private suspend fun updateCurrentSubscriptionGroup(throttled: Boolean): Boolean {

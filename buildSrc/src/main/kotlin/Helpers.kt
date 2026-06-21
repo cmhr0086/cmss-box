@@ -150,6 +150,9 @@ fun Project.setupApp() {
     val remoteConfigUrl = requireLocalProperties().getProperty("REMOTE_CONFIG_URL")
         ?: System.getenv("REMOTE_CONFIG_URL")
         ?: ""
+    val managementApiUrl = requireLocalProperties().getProperty("MANAGEMENT_API_URL")
+        ?: System.getenv("MANAGEMENT_API_URL")
+        ?: remoteConfigUrl.substringBefore("/app-config.json").trimEnd('/')
     android.apply {
         defaultConfig {
             applicationId = pkgName
@@ -158,6 +161,7 @@ fun Project.setupApp() {
             buildConfigField("String", "PRE_VERSION_NAME", "\"\"")
             buildConfigField("String", "BUILTIN_SUB_URL", "\"${builtInSubUrl.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
             buildConfigField("String", "REMOTE_CONFIG_URL", "\"${remoteConfigUrl.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
+            buildConfigField("String", "MANAGEMENT_API_URL", "\"${managementApiUrl.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
         }
     }
     setupAppCommon()

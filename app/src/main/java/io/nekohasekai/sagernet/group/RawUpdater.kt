@@ -24,6 +24,7 @@ import moe.matsuri.nb4a.Protocols
 import moe.matsuri.nb4a.proxy.anytls.AnyTLSBean
 import moe.matsuri.nb4a.proxy.config.ConfigBean
 import moe.matsuri.nb4a.utils.Util
+import io.nekohasekai.sagernet.managed.ManagedDeviceIdentity
 import org.ini4j.Ini
 import org.json.JSONArray
 import org.json.JSONObject
@@ -66,7 +67,7 @@ object RawUpdater : GroupUpdater() {
                 if (DataStore.allowInsecureOnRequest) {
                     allowInsecure()
                 }
-                setURL(subscription.link)
+                setURL(ManagedDeviceIdentity.signManagedUrl(subscription.link))
                 setUserAgent(subscription.customUserAgent.takeIf { it.isNotBlank() } ?: USER_AGENT)
             }.execute()
             proxies = parseRaw(Util.getStringBox(response.contentString))

@@ -40,6 +40,10 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var remoteConfigLastFetchTime by configurationStore.long(Key.REMOTE_CONFIG_LAST_FETCH_TIME) { 0L }
     var remoteConfigVersion by configurationStore.int(Key.REMOTE_CONFIG_VERSION) { 0 }
     var remoteConfigUpdateIntervalMinutes by configurationStore.int(Key.REMOTE_CONFIG_UPDATE_INTERVAL_MINUTES) { 10 }
+    var managedDeviceId by configurationStore.string(Key.MANAGED_DEVICE_ID) { "" }
+    var managedGroupId by configurationStore.long(Key.MANAGED_GROUP_ID) { 0L }
+    var managedTemplateVersion by configurationStore.int(Key.MANAGED_TEMPLATE_VERSION) { 0 }
+    var managedLastVerifiedAt by configurationStore.long(Key.MANAGED_LAST_VERIFIED_AT) { 0L }
 
     // only in bg process
     var vpnService: VpnService? = null

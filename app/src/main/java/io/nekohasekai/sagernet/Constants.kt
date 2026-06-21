@@ -74,6 +74,10 @@ object Key {
     const val REMOTE_CONFIG_LAST_FETCH_TIME = "remote_config_last_fetch_time"
     const val REMOTE_CONFIG_VERSION = "remote_config_version"
     const val REMOTE_CONFIG_UPDATE_INTERVAL_MINUTES = "remote_config_update_interval_minutes"
+    const val MANAGED_DEVICE_ID = "managed_device_id"
+    const val MANAGED_GROUP_ID = "managed_group_id"
+    const val MANAGED_TEMPLATE_VERSION = "managed_template_version"
+    const val MANAGED_LAST_VERIFIED_AT = "managed_last_verified_at"
 
     const val SERVER_ADDRESS = "serverAddress"
     const val SERVER_PORT = "serverPort"

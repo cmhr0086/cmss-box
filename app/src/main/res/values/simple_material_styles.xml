@@ -1,0 +1,31 @@
+<resources>
+
+    <style name="ThemeOverlay_CMSS_SimpleDialog" parent="ThemeOverlay.MaterialComponents.MaterialAlertDialog">
+        <item name="backgroundTint">@color/simple_card_bg</item>
+        <item name="buttonBarPositiveButtonStyle">@style/Widget_CMSS_Dialog_TextButton</item>
+        <item name="buttonBarNegativeButtonStyle">@style/Widget_CMSS_Dialog_TextButton</item>
+        <item name="buttonBarNeutralButtonStyle">@style/Widget_CMSS_Dialog_TextButton</item>
+    </style>
+
+    <style name="Widget_CMSS_Dialog_TextButton" parent="Widget.MaterialComponents.Button.TextButton.Dialog">
+        <item name="android:textColor">@color/simple_accent_green</item>
+    </style>
+
+    <style name="Widget_CMSS_SimpleSurfaceCard" parent="Widget.MaterialComponents.CardView">
+        <item name="cardBackgroundColor">@color/simple_card_bg</item>
+        <item name="strokeColor">@color/simple_card_stroke</item>
+        <item name="strokeWidth">1dp</item>
+        <item name="shapeAppearanceOverlay">@style/ShapeAppearanceOverlay_CMSS_SimpleCard</item>
+    </style>
+
+    <style name="ShapeAppearanceOverlay_CMSS_SimpleCard">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">24dp</item>
+    </style>
+
+    <style name="ShapeAppearanceOverlay_CMSS_SimpleSmall">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">18dp</item>
+    </style>
+
+</resources>
