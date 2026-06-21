@@ -15,7 +15,7 @@
         android:paddingStart="24dp"
         android:paddingTop="24dp"
         android:paddingEnd="24dp"
-        android:paddingBottom="20dp">
+        android:paddingBottom="24dp">
 
         <TextView
             android:layout_width="match_parent"
@@ -40,118 +40,106 @@
             android:layout_marginTop="20dp"
             android:orientation="vertical">
 
-            <com.google.android.material.card.MaterialCardView
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                app:cardBackgroundColor="@color/simple_bg_start"
-                app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay_CMSS_SimpleSmall"
-                app:strokeColor="@color/simple_card_stroke"
-                app:strokeWidth="1dp">
+                android:orientation="horizontal"
+                android:paddingStart="4dp"
+                android:paddingTop="4dp"
+                android:paddingEnd="4dp"
+                android:paddingBottom="4dp">
 
                 <LinearLayout
-                    android:layout_width="match_parent"
+                    android:layout_width="28dp"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:paddingStart="16dp"
-                    android:paddingTop="16dp"
-                    android:paddingEnd="16dp"
-                    android:paddingBottom="16dp">
+                    android:gravity="center_horizontal"
+                    android:orientation="vertical">
 
-                    <LinearLayout
+                    <FrameLayout
                         android:layout_width="28dp"
-                        android:layout_height="match_parent"
-                        android:gravity="center_horizontal"
-                        android:orientation="vertical">
-
-                        <FrameLayout
-                            android:layout_width="28dp"
-                            android:layout_height="28dp">
-
-                            <TextView
-                                android:id="@+id/remote_step_dot"
-                                android:layout_width="18dp"
-                                android:layout_height="18dp"
-                                android:layout_gravity="center"
-                                android:background="@drawable/simple_step_dot_bg"
-                                android:gravity="center"
-                                android:textColor="@color/simple_text_primary"
-                                android:textSize="11sp"
-                                android:textStyle="bold" />
-
-                            <ProgressBar
-                                android:id="@+id/remote_step_indicator"
-                                android:layout_width="24dp"
-                                android:layout_height="24dp"
-                                android:layout_gravity="center"
-                                android:indeterminate="true"
-                                android:visibility="gone" />
-
-                        </FrameLayout>
-
-                        <View
-                            android:id="@+id/step_connector"
-                            android:layout_width="2dp"
-                            android:layout_height="42dp"
-                            android:background="@color/simple_card_stroke" />
-
-                    </LinearLayout>
-
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="12dp"
-                        android:layout_weight="1"
-                        android:orientation="vertical">
+                        android:layout_height="28dp">
 
                         <TextView
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="更新远端订阅配置"
+                            android:id="@+id/remote_step_dot"
+                            android:layout_width="18dp"
+                            android:layout_height="18dp"
+                            android:layout_gravity="center"
+                            android:background="@drawable/simple_step_dot_bg"
+                            android:gravity="center"
                             android:textColor="@color/simple_text_primary"
-                            android:textSize="17sp"
+                            android:textSize="11sp"
                             android:textStyle="bold" />
 
-                        <TextView
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="4dp"
-                            android:text="从远程 JSON 获取最新订阅地址"
-                            android:textColor="@color/simple_text_secondary"
-                            android:textSize="13sp" />
+                        <ProgressBar
+                            android:id="@+id/remote_step_indicator"
+                            android:layout_width="24dp"
+                            android:layout_height="24dp"
+                            android:layout_gravity="center"
+                            android:indeterminate="true"
+                            android:visibility="gone" />
 
-                        <TextView
-                            android:id="@+id/remote_step_status"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="10dp"
-                            android:text="等待中"
-                            android:textColor="@color/simple_text_secondary"
-                            android:textSize="13sp"
-                            android:textStyle="bold" />
+                    </FrameLayout>
 
-                    </LinearLayout>
+                    <View
+                        android:id="@+id/step_connector"
+                        android:layout_width="2dp"
+                        android:layout_height="48dp"
+                        android:background="@color/simple_card_stroke" />
 
                 </LinearLayout>
 
-            </com.google.android.material.card.MaterialCardView>
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:paddingTop="2dp">
 
-            <com.google.android.material.card.MaterialCardView
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="更新远端订阅配置"
+                        android:textColor="@color/simple_text_primary"
+                        android:textSize="17sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="从远程 JSON 获取最新订阅地址"
+                        android:textColor="@color/simple_text_secondary"
+                        android:textSize="13sp" />
+
+                    <TextView
+                        android:id="@+id/remote_step_status"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:text="等待中"
+                        android:textColor="@color/simple_text_secondary"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                app:cardBackgroundColor="@color/simple_bg_start"
-                app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay_CMSS_SimpleSmall"
-                app:strokeColor="@color/simple_card_stroke"
-                app:strokeWidth="1dp">
+                android:layout_marginTop="4dp"
+                android:orientation="horizontal"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
+                android:paddingBottom="4dp">
 
                 <LinearLayout
-                    android:layout_width="match_parent"
+                    android:layout_width="28dp"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:paddingStart="16dp"
-                    android:paddingTop="16dp"
-                    android:paddingEnd="16dp"
-                    android:paddingBottom="16dp">
+                    android:gravity="center_horizontal"
+                    android:orientation="vertical">
 
                     <FrameLayout
                         android:layout_width="28dp"
@@ -178,44 +166,50 @@
 
                     </FrameLayout>
 
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="12dp"
-                        android:layout_weight="1"
-                        android:orientation="vertical">
-
-                        <TextView
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="拉取本地订阅内容"
-                            android:textColor="@color/simple_text_primary"
-                            android:textSize="17sp"
-                            android:textStyle="bold" />
-
-                        <TextView
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="4dp"
-                            android:text="使用当前订阅地址更新节点和流量"
-                            android:textColor="@color/simple_text_secondary"
-                            android:textSize="13sp" />
-
-                        <TextView
-                            android:id="@+id/local_step_status"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="10dp"
-                            android:text="等待中"
-                            android:textColor="@color/simple_text_secondary"
-                            android:textSize="13sp"
-                            android:textStyle="bold" />
-
-                    </LinearLayout>
+                    <View
+                        android:layout_width="2dp"
+                        android:layout_height="48dp"
+                        android:visibility="invisible" />
 
                 </LinearLayout>
 
-            </com.google.android.material.card.MaterialCardView>
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:paddingTop="2dp">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="拉取本地订阅内容"
+                        android:textColor="@color/simple_text_primary"
+                        android:textSize="17sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="使用当前订阅地址更新节点和流量"
+                        android:textColor="@color/simple_text_secondary"
+                        android:textSize="13sp" />
+
+                    <TextView
+                        android:id="@+id/local_step_status"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:text="等待中"
+                        android:textColor="@color/simple_text_secondary"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+
+                </LinearLayout>
+
+            </LinearLayout>
 
         </LinearLayout>
 
@@ -232,6 +226,7 @@
                 android:layout_height="44dp"
                 android:minWidth="88dp"
                 android:text="关闭"
+                android:textAllCaps="false"
                 android:textColor="@color/simple_bg_start"
                 app:backgroundTint="@color/simple_accent_green"
                 app:cornerRadius="22dp" />

@@ -4,140 +4,159 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@drawable/simple_main_background"
-    android:gravity="center_horizontal"
     android:orientation="vertical"
     android:paddingStart="24dp"
-    android:paddingTop="36dp"
+    android:paddingTop="24dp"
     android:paddingEnd="24dp"
     android:paddingBottom="24dp">
 
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="CMSS-Box"
-        android:textColor="@color/simple_text_primary"
-        android:textSize="32sp"
-        android:textStyle="bold" />
+    <Space
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
 
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
-        android:text="设备授权"
-        android:textColor="@color/simple_text_secondary"
-        android:textSize="15sp" />
-
-    <com.google.android.material.card.MaterialCardView
-        android:id="@+id/activation_form"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="32dp"
-        app:cardBackgroundColor="@color/simple_card_bg"
-        app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay_CMSS_SimpleCard"
-        app:strokeColor="@color/simple_card_stroke"
-        app:strokeWidth="1dp">
+        android:gravity="center_horizontal"
+        android:orientation="vertical">
 
-        <LinearLayout
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="CMSS-Box"
+            android:textColor="@color/simple_text_primary"
+            android:textSize="32sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="设备授权"
+            android:textColor="@color/simple_text_secondary"
+            android:textSize="15sp" />
+
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/activation_form"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:paddingStart="22dp"
-            android:paddingTop="22dp"
-            android:paddingEnd="22dp"
-            android:paddingBottom="22dp">
+            android:layout_marginTop="28dp"
+            app:cardBackgroundColor="@color/simple_card_bg"
+            app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay_CMSS_SimpleCard"
+            app:strokeColor="@color/simple_card_stroke"
+            app:strokeWidth="1dp">
 
-            <TextView
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="输入订阅码"
-                android:textColor="@color/simple_text_primary"
-                android:textSize="20sp"
-                android:textStyle="bold" />
+                android:orientation="vertical"
+                android:paddingStart="22dp"
+                android:paddingTop="22dp"
+                android:paddingEnd="22dp"
+                android:paddingBottom="22dp">
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:text="验证通过后会自动获取当前设备对应的订阅配置。"
-                android:textColor="@color/simple_text_secondary"
-                android:textSize="13sp" />
-
-            <com.google.android.material.textfield.TextInputLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="18dp"
-                android:hint="订阅码"
-                app:boxBackgroundColor="@color/simple_bg_start"
-                app:boxBackgroundMode="outline"
-                app:boxCornerRadiusBottomEnd="18dp"
-                app:boxCornerRadiusBottomStart="18dp"
-                app:boxCornerRadiusTopEnd="18dp"
-                app:boxCornerRadiusTopStart="18dp"
-                app:boxStrokeColor="@color/simple_accent_green"
-                app:placeholderText="CMSS-XXXX-XXXX">
-
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/invite_code"
+                <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:inputType="textCapCharacters"
-                    android:maxLines="1"
-                    android:paddingTop="16dp"
-                    android:paddingBottom="16dp"
+                    android:text="输入订阅码"
                     android:textColor="@color/simple_text_primary"
-                    android:textColorHint="@color/simple_text_secondary" />
-            </com.google.android.material.textfield.TextInputLayout>
+                    android:textSize="20sp"
+                    android:textStyle="bold" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/activate_button"
-                android:layout_width="match_parent"
-                android:layout_height="50dp"
-                android:layout_marginTop="20dp"
-                android:text="验证并获取配置"
-                android:textColor="@color/simple_bg_start"
-                app:backgroundTint="@color/simple_accent_green"
-                app:cornerRadius="18dp" />
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="验证通过后会自动获取当前设备对应的订阅配置。"
+                    android:textColor="@color/simple_text_secondary"
+                    android:textSize="13sp" />
 
-        </LinearLayout>
-    </com.google.android.material.card.MaterialCardView>
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="18dp"
+                    android:hint="订阅码"
+                    app:boxBackgroundColor="@color/simple_bg_start"
+                    app:boxBackgroundMode="outline"
+                    app:boxCornerRadiusBottomEnd="18dp"
+                    app:boxCornerRadiusBottomStart="18dp"
+                    app:boxCornerRadiusTopEnd="18dp"
+                    app:boxCornerRadiusTopStart="18dp"
+                    app:boxStrokeColor="@color/simple_accent_green"
+                    app:placeholderText="CMSS-XXXX-XXXX">
 
-    <ProgressBar
-        android:id="@+id/activation_progress"
-        android:layout_width="42dp"
-        android:layout_height="42dp"
-        android:layout_marginTop="32dp"
-        android:indeterminateTint="@color/simple_accent_green"
-        android:visibility="gone" />
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/invite_code"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="textCapCharacters"
+                        android:maxLines="1"
+                        android:paddingTop="16dp"
+                        android:paddingBottom="16dp"
+                        android:textColor="@color/simple_text_primary"
+                        android:textColorHint="@color/simple_text_secondary" />
+                </com.google.android.material.textfield.TextInputLayout>
 
-    <TextView
-        android:id="@+id/activation_status"
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/activate_button"
+                    android:layout_width="match_parent"
+                    android:layout_height="50dp"
+                    android:layout_marginTop="20dp"
+                    android:text="验证并获取配置"
+                    android:textColor="@color/simple_bg_start"
+                    android:textAllCaps="false"
+                    app:backgroundTint="@color/simple_accent_green"
+                    app:cornerRadius="18dp" />
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <ProgressBar
+            android:id="@+id/activation_progress"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:layout_marginTop="28dp"
+            android:indeterminateTint="@color/simple_accent_green"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/activation_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:gravity="center"
+            android:textColor="@color/simple_text_secondary"
+            android:textSize="14sp"
+            android:visibility="gone" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/retry_button"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="18dp"
+            android:text="重新验证"
+            android:textColor="@color/simple_bg_start"
+            android:textAllCaps="false"
+            android:visibility="gone"
+            app:backgroundTint="@color/simple_accent_green"
+            app:cornerRadius="18dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/change_code_button"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="12dp"
+            android:text="更换订阅码"
+            android:textColor="@color/simple_text_primary"
+            android:textAllCaps="false"
+            android:visibility="gone"
+            app:backgroundTint="@color/simple_button_idle"
+            app:cornerRadius="18dp" />
+    </LinearLayout>
+
+    <Space
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="18dp"
-        android:gravity="center"
-        android:textColor="@color/simple_text_secondary"
-        android:textSize="14sp"
-        android:visibility="gone" />
-
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/retry_button"
-        android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:layout_marginTop="18dp"
-        android:text="重新验证"
-        android:textColor="@color/simple_bg_start"
-        android:visibility="gone"
-        app:backgroundTint="@color/simple_accent_green"
-        app:cornerRadius="18dp" />
-
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/change_code_button"
-        android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:layout_marginTop="12dp"
-        android:text="更换订阅码"
-        android:textColor="@color/simple_text_primary"
-        android:visibility="gone"
-        app:backgroundTint="@color/simple_button_idle"
-        app:cornerRadius="18dp" />
+        android:layout_height="0dp"
+        android:layout_weight="1" />
 </LinearLayout>

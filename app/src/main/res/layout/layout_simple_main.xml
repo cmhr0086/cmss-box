@@ -17,9 +17,12 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="@color/simple_bg_start"
+        android:elevation="4dp"
         android:paddingTop="6dp"
         app:itemIconTint="@color/simple_bottom_nav_colors"
         app:itemTextColor="@color/simple_bottom_nav_colors"
+        app:itemHorizontalTranslationEnabled="false"
+        app:itemIconSize="24dp"
         app:labelVisibilityMode="labeled"
         app:menu="@menu/simple_bottom_navigation" />
 
