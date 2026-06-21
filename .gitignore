@@ -15,6 +15,20 @@ jniLibs/
 /library/libcore_build/
 .idea/deploymentTargetDropDown.xml
 /nkmr
+/cloudflare/
+
+# local secrets
+.env
+.env.*
+*.keystore
+*.jks
+*.p12
+*.pem
+*.key
+*.crt
+*.cer
+*.der
+release.keystore
 
 # submodules
 /external
