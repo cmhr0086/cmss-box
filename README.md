@@ -1,221 +1,227 @@
-# CMSS-Box 部署与自定义服务端指南
+# CMSS-Box
 
-CMSS-Box 是一个基于 NekoBox for Android 定制的客户端方案，配套 Cloudflare Worker 服务端，实现：
+CMSS-Box 是一个基于 **NekoBox for Android** 定制的 Android 客户端方案，配套 **Cloudflare Worker** 服务端，用于实现远程配置分发、邀请码激活和设备模板管理。
 
-- 通过邀请码激活设备
-- 按设备发放和切换配置模板
-- 客户端启动时强制拉取最新配置
-- 后台统一管理模板、邀请码、设备绑定关系
+## 功能概览
 
-这个仓库面向“完整部署”和“二次定制”，README 默认按从零搭建整套服务来写。
+* Android 客户端远程拉取配置
+* 邀请码激活设备
+* 按设备绑定不同配置模板
+* 后台管理模板、邀请码和设备
+* Cloudflare Worker + D1 + KV 服务端
+* 支持二次定制客户端和服务端逻辑
 
-## 1. 项目结构
+## 项目结构
 
-- Android 客户端：`app/`
-- Cloudflare Worker 服务端：`cloudflare/sub-json/`
-- Worker D1 迁移：`cloudflare/sub-json/migrations/`
+```text
+app/                           Android 客户端
+cloudflare/sub-json/            Cloudflare Worker 服务端
+cloudflare/sub-json/migrations/ D1 数据库迁移文件
+```
 
-服务端核心能力：
+## 服务端接口
 
-- `/app-config.json`：客户端远程配置入口
-- `/api/v1/activate`：邀请码激活设备
-- `/api/v1/config`：设备签名鉴权后获取模板配置
-- `/api/v1/subscription`：设备签名鉴权后拉取最终订阅
-- `/admin/*`：模板、邀请码、设备管理后台
+```text
+/app-config.json        客户端远程配置入口
+/api/v1/activate        设备激活
+/api/v1/config          获取设备配置
+/api/v1/subscription    获取最终订阅
+/admin/*                管理后台
+```
 
-## 2. 整体流程
+## 一、部署 Cloudflare Worker 服务端
 
-完整链路如下：
+### 1. 准备 Cloudflare 资源
 
-1. 在 Cloudflare 部署 `sub-json` Worker，并绑定 D1 / KV / secrets
-2. 在后台创建一个或多个配置模板
-3. 生成邀请码，发给设备
-4. Android 客户端输入邀请码激活
-5. 客户端保存设备身份，后续每次启动都会向 Worker 拉取配置和订阅
-6. 后台可随时给单台设备切换模板，客户端下次启动时自动应用
+需要准备：
 
-## 3. Cloudflare 端完整部署
-
-### 3.1 准备资源
-
-你需要在 Cloudflare 账号下准备：
-
-- 1 个 Worker
-- 1 个 D1 数据库
-- 1 个 KV Namespace
+* 1 个 Worker
+* 1 个 D1 数据库
+* 1 个 KV Namespace
 
 推荐命名：
 
-- Worker：`sub-json`
-- D1：`cmss-device-config`
-- KV：自定义，例如 `cmss-config`
+```text
+Worker: sub-json
+D1:     cmss-device-config
+KV:     cmss-config
+```
 
-### 3.2 安装依赖
+### 2. 安装依赖
 
-在 `cloudflare/sub-json` 目录执行：
+进入 Worker 目录：
 
-```powershell
+```bash
+cd cloudflare/sub-json
 npm install
 ```
 
-### 3.3 修改 `wrangler.jsonc`
+### 3. 修改 `wrangler.jsonc`
 
-仓库内的 [cloudflare/sub-json/wrangler.jsonc](D:/Codex/nekobox-for-android/cloudflare/sub-json/wrangler.jsonc) 已经改成公开模板，你需要把下面两个占位值替换成你自己的真实资源 ID：
+打开：
 
-- `YOUR_KV_NAMESPACE_ID`
-- `YOUR_D1_DATABASE_ID`
+```text
+cloudflare/sub-json/wrangler.jsonc
+```
 
-默认保留的配置项：
+替换为你自己的 Cloudflare 资源 ID：
 
-- Worker 名称：`sub-json`
-- D1 绑定名：`DB`
-- KV 绑定名：`CONFIG_KV`
+```text
+YOUR_KV_NAMESPACE_ID
+YOUR_D1_DATABASE_ID
+```
 
-如果你要改 Worker 名称，也要同步调整你自己的部署和访问域名。
+默认绑定名保持不变：
 
-### 3.4 配置 Worker secrets
+```text
+DB
+CONFIG_KV
+```
 
-必须设置两个 secrets：
+### 4. 设置后台密钥
 
-- `TOTP_SECRET_BASE32`
-- `ADMIN_SESSION_SECRET`
+需要设置两个 Worker secrets：
 
-作用说明：
-
-- `TOTP_SECRET_BASE32`：后台登录用的 TOTP Base32 密钥
-- `ADMIN_SESSION_SECRET`：后台 session 签名密钥
-
-示例命令：
-
-```powershell
+```bash
 npx wrangler secret put TOTP_SECRET_BASE32
 npx wrangler secret put ADMIN_SESSION_SECRET
 ```
 
-不要把这两个值写进源码、README、截图或 Git 提交里。
+说明：
 
-### 3.5 初始化数据库
+```text
+TOTP_SECRET_BASE32     后台登录用的 TOTP Base32 密钥
+ADMIN_SESSION_SECRET   后台 session 签名密钥
+```
 
-执行 D1 迁移：
+后台登录使用六位动态验证码。
 
-```powershell
+### 5. 初始化 D1 数据库
+
+```bash
 npx wrangler d1 migrations apply cmss-device-config --remote
 ```
 
-如果你的 D1 名称不是 `cmss-device-config`，把命令中的数据库名替换成你自己的。
+如果你的 D1 数据库名称不是 `cmss-device-config`，请替换为自己的数据库名称。
 
-### 3.6 部署 Worker
+### 6. 部署 Worker
 
-```powershell
+```bash
 npx wrangler deploy
 ```
 
-部署完成后，你通常会得到：
+部署完成后访问：
 
-- Worker 域名，例如 `https://sub-json.<your-subdomain>.workers.dev`
+```text
+https://你的-worker域名/admin/login
+```
 
-后台地址：
+## 二、初始化后台
 
-- `https://你的-worker/admin/login`
+登录后台后，按顺序完成：
 
-## 4. 后台初始化与日常使用
+1. 创建配置模板
+2. 生成邀请码
+3. 在 Android 客户端输入邀请码激活
+4. 在后台查看设备绑定状态
+5. 根据需要为设备切换模板
 
-### 4.1 登录后台
+模板切换不会实时推送到正在运行中的客户端。客户端需要在下次启动或手动更新时重新拉取配置。
 
-后台登录使用 TOTP 六位动态码，不是固定密码。
+## 三、配置 Android 客户端
 
-你需要先把 `TOTP_SECRET_BASE32` 导入自己的验证器应用，然后访问：
+在项目根目录创建或修改：
 
-- `/admin/login`
+```text
+local.properties
+```
 
-### 4.2 创建模板
-
-进入后台模板页后，为每个上游订阅创建一个模板。模板主要包含：
-
-- 模板名称
-- 上游订阅 URL
-- 是否启用
-- 版本号
-- 客户端更新间隔
-
-模板是设备配置分发的核心单位。
-
-### 4.3 生成邀请码
-
-在邀请码页中：
-
-- 选择模板
-- 设置数量
-- 设置有效天数
-- 生成邀请码
-
-邀请码完整值只在生成当次展示，建议立即保存。
-
-### 4.4 管理设备
-
-设备页支持：
-
-- 查看邀请码绑定状态
-- 禁用并删除邀请码
-- 恢复设备状态
-- 解绑设备
-- 为单台设备切换模板
-
-切换模板不会对正在运行中的客户端做实时推送；客户端下次启动并强制拉取更新时，会自动使用新模板。
-
-## 5. Android 客户端接入方式
-
-### 5.1 服务端地址从哪里来
-
-客户端通过 `BuildConfig.MANAGEMENT_API_URL` 调用 Worker 接口。
-
-这个值的来源在 [buildSrc/src/main/kotlin/Helpers.kt](D:/Codex/nekobox-for-android/buildSrc/src/main/kotlin/Helpers.kt)：
-
-- 优先读取 `local.properties` 里的 `MANAGEMENT_API_URL`
-- 其次读取环境变量 `MANAGEMENT_API_URL`
-- 如果未设置，则从 `REMOTE_CONFIG_URL` 推导出基础地址
-
-也就是说，最稳妥的配置方式是在 `local.properties` 里加入：
+加入你的服务端地址：
 
 ```properties
 MANAGEMENT_API_URL=https://你的-worker域名
 REMOTE_CONFIG_URL=https://你的-worker域名/app-config.json
 ```
 
-如果你还要保留内置订阅，也可以同时设置：
+如果需要内置默认订阅，可以额外加入：
 
 ```properties
 BUILTIN_SUB_URL=https://你的默认订阅地址
 ```
 
-### 5.2 客户端与服务端交互链路
+## 四、配置编译环境
 
-客户端激活和更新流程如下：
+### 1. 基础要求
 
-1. 输入邀请码
-2. 客户端生成设备密钥对
-3. 调用 `/api/v1/activate`
-4. 保存返回的 `device_id`
-5. 后续通过签名 URL 调用 `/api/v1/config`
-6. 再根据返回的 `subscription_url` 拉取 `/api/v1/subscription`
+需要安装：
 
-对应代码入口：
+* Android Studio
+* Android SDK
+* JDK 17
+* Git
 
-- [app/src/main/java/io/nekohasekai/sagernet/managed/ManagedApiClient.kt](D:/Codex/nekobox-for-android/app/src/main/java/io/nekohasekai/sagernet/managed/ManagedApiClient.kt)
-- [app/src/main/java/io/nekohasekai/sagernet/managed/ManagedSubscriptionCoordinator.kt](D:/Codex/nekobox-for-android/app/src/main/java/io/nekohasekai/sagernet/managed/ManagedSubscriptionCoordinator.kt)
-- [app/src/main/java/io/nekohasekai/sagernet/managed/ManagedDeviceIdentity.kt](D:/Codex/nekobox-for-android/app/src/main/java/io/nekohasekai/sagernet/managed/ManagedDeviceIdentity.kt)
+建议使用 Android Studio 自带的 SDK 管理器安装所需 Android SDK 和 Build Tools。
 
-### 5.3 构建客户端
+### 2. 检查 Java 版本
 
-在项目根目录的 PowerShell 执行：
+执行：
+
+```bash
+java -version
+```
+
+应显示 JDK 17，例如：
+
+```text
+java version "17.x.x"
+```
+
+如果系统存在多个 Java 版本，请将 `JAVA_HOME` 指向 JDK 17。
+
+Windows 示例：
 
 ```powershell
-$env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
+$env:JAVA_HOME="你的 JDK 17 路径"
 $env:Path="$env:JAVA_HOME\bin;$env:Path"
+```
+
+macOS / Linux 示例：
+
+```bash
+export JAVA_HOME="你的 JDK 17 路径"
+export PATH="$JAVA_HOME/bin:$PATH"
+```
+
+再次检查：
+
+```bash
+java -version
+```
+
+## 五、编译 Android 客户端
+
+在项目根目录执行：
+
+```bash
+./gradlew :app:assembleDebug
+```
+
+Windows PowerShell 执行：
+
+```powershell
 .\gradlew.bat :app:assembleDebug
 ```
 
-如果只想构建特定风味：
+可选构建不同版本：
+
+```bash
+./gradlew :app:assembleOssDebug
+./gradlew :app:assembleFdroidDebug
+./gradlew :app:assemblePlayDebug
+./gradlew :app:assemblePreviewDebug
+```
+
+Windows PowerShell：
 
 ```powershell
 .\gradlew.bat :app:assembleOssDebug
@@ -224,94 +230,81 @@ $env:Path="$env:JAVA_HOME\bin;$env:Path"
 .\gradlew.bat :app:assemblePreviewDebug
 ```
 
-产物一般在：
+编译产物位于：
 
-- `app/build/outputs/apk/`
+```text
+app/build/outputs/apk/
+```
 
-## 6. 自定义服务端与扩展点
+## 六、常见问题
 
-你可以围绕 `cloudflare/sub-json/src/index.js` 做继续扩展，常见方向包括：
+### 后台提示 `TOTP未配置`
 
-- 修改后台 UI
-- 增加模板字段
-- 接入自定义审计逻辑
-- 调整设备激活和恢复策略
-- 扩展 `/app-config.json` 返回内容
+检查是否已经设置：
 
-当前默认设计是：
+```bash
+npx wrangler secret put TOTP_SECRET_BASE32
+```
 
-- `invites` 表既承担邀请码记录，也承担设备绑定记录
-- 模板切换只更新 `invites.template_id`
-- 不新增实时推送链路
-- 客户端下次启动时强制重新拉取配置
+设置后重新部署 Worker：
 
-## 7. 常见问题
+```bash
+npx wrangler deploy
+```
 
-### 7.1 后台提示 `TOTP未配置`
-
-原因通常是没有设置 `TOTP_SECRET_BASE32`。
-
-处理：
-
-- 重新执行 `wrangler secret put TOTP_SECRET_BASE32`
-- 确认部署后访问的是最新 Worker 版本
-
-### 7.2 设备页加载失败 / 500
+### 设备页加载失败
 
 优先检查：
 
-- D1 是否已完成迁移
-- `wrangler.jsonc` 的 D1 绑定是否正确
-- Worker 是否是最新部署版本
+* D1 是否完成迁移
+* `wrangler.jsonc` 中的 D1 ID 是否正确
+* Worker 是否已重新部署
 
-### 7.3 模板切换后没有立刻变化
+### 模板切换后客户端没有变化
 
-这是当前设计预期：
+这是正常现象。模板切换只影响后续配置拉取，客户端需要下次启动或手动更新时重新获取配置。
 
-- 模板切换只影响后续拉取
-- 客户端下次启动或下次强制更新时才会读取新模板
+### 提示 `MANAGEMENT_API_URL 未配置`
 
-### 7.4 `MANAGEMENT_API_URL 未配置`
+说明客户端编译时没有正确配置服务端地址。请检查：
 
-说明客户端构建时没有注入服务端地址。
+```properties
+MANAGEMENT_API_URL=https://你的-worker域名
+```
 
-处理：
+### 编译失败或找不到 Java
 
-- 在 `local.properties` 中设置 `MANAGEMENT_API_URL`
-- 或通过环境变量传入
+检查：
 
-### 7.5 D1 / KV 绑定错误
+```bash
+java -version
+```
 
-优先检查：
+确认当前使用的是 JDK 17。
 
-- `wrangler.jsonc` 中的绑定 ID 是否替换成你的真实值
-- 绑定名称是否仍与代码一致：`DB`、`CONFIG_KV`
+如果不是 JDK 17，请重新设置 `JAVA_HOME`。
 
-## 8. 安全提醒
+## 七、安全提醒
 
-以下内容不要上传到公开仓库：
+以下内容应仅保存在本地或 Cloudflare secrets 中：
 
-- `TOTP_SECRET_BASE32`
-- `ADMIN_SESSION_SECRET`
-- `local.properties` 中的私有地址或签名参数
-- `cloudflare/sub-json/.wrangler/`
-- 任何 keystore、证书、私钥、签名备份文件
+* `TOTP_SECRET_BASE32`
+* `ADMIN_SESSION_SECRET`
+* `local.properties`
+* keystore
+* 证书
+* 私钥
+* 签名文件
 
-本仓库已经按公开发布场景做了处理：
+不要将密钥、证书、私钥、签名文件或真实订阅地址写入公开文档、截图或可公开访问的配置文件中。
 
-- `cloudflare` 目录允许上传
-- Worker 配置改成模板占位
-- 本地 Wrangler 缓存和签名文件应继续忽略
+## 八、上游与许可证
 
-如果你曾经把敏感文件推送到公开远端，还需要额外做一次 Git 历史清理；本仓库当前只处理“后续不再上传”。
+本项目基于 NekoBox for Android 定制。
 
-## 9. 上游与许可证说明
+上游项目：
 
-本项目基于 NekoBox for Android 定制，保留 GPL-3.0 许可证要求，并建议在对外发布时明确说明上游来源。
+* [MatsuriDayo/NekoBoxForAndroid](https://github.com/MatsuriDayo/NekoBoxForAndroid)
+* [SagerNet/sing-box](https://github.com/SagerNet/sing-box)
 
-上游参考：
-
-- [MatsuriDayo/NekoBoxForAndroid](https://github.com/MatsuriDayo/NekoBoxForAndroid)
-- [SagerNet/sing-box](https://github.com/SagerNet/sing-box)
-
-如你继续公开分发修改版客户端，请自行确认许可证履行、源码公开和署名说明是否完整。
+本项目保留 GPL-3.0 许可证要求。分发修改版客户端时，请遵守对应开源许可证要求。
