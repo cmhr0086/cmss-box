@@ -4,12 +4,13 @@ import android.content.Intent
 import android.content.res.ColorStateList
 import android.os.Bundle
 import android.os.RemoteException
-import android.view.View
-import android.widget.ProgressBar
-import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
+import androidx.fragment.app.commitNow
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.SagerNet
 import io.nekohasekai.sagernet.aidl.ISagerNetService
@@ -33,8 +34,8 @@ import io.nekohasekai.sagernet.ktx.onMainDispatcher
 import io.nekohasekai.sagernet.ktx.readableMessage
 import io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher
 import io.nekohasekai.sagernet.ui.dialog.SubscriptionUpdateProgressDialogFragment
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import moe.matsuri.nb4a.utils.toBytesString
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -43,6 +44,14 @@ import java.util.Locale
 class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupManager.Listener {
     companion object {
         const val EXTRA_OPEN_UPDATE_DIALOG = "open_update_dialog"
+        const val EXTRA_START_TAB = "start_tab"
+        const val START_TAB_HOME = 0
+        const val START_TAB_SUBSCRIPTION = 1
+        const val START_TAB_SETTINGS = 2
+
+        private const val TAG_HOME = "simple_home_fragment"
+        private const val TAG_SUBSCRIPTION = "simple_subscription_fragment"
+        private const val TAG_SETTINGS = "simple_settings_fragment"
     }
 
     private lateinit var binding: LayoutSimpleMainBinding
@@ -51,6 +60,7 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
     private var latencyTestJob: Job? = null
     private var subscriptionUpdateJob: Job? = null
     private var autoLatencyTestDone = false
+    private var currentTab = START_TAB_HOME
     private val connection = SagerConnection(
         SagerConnection.CONNECTION_ID_MAIN_ACTIVITY_FOREGROUND,
         true
@@ -60,21 +70,6 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
             lastFailureMessage = null
             updateConnectionState(BaseService.State.Stopped)
             Toast.makeText(this, R.string.vpn_permission_denied, Toast.LENGTH_LONG).show()
-        }
-    }
-    private val settingsLauncher = registerForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        val data = result.data ?: return@registerForActivityResult
-        if (result.resultCode == RESULT_OK) {
-            if (data.getBooleanExtra(SimpleSettingsActivity.RESULT_OPEN_UPDATE_DIALOG, false)) {
-                showSubscriptionUpdateDialog()
-            }
-            if (data.getBooleanExtra(SimpleSettingsActivity.RESULT_REFRESH_HOME, false)) {
-                updateLatencyFromSelectedProfile()
-                updateSubscriptionInfo()
-                updateConnectionState(DataStore.serviceState)
-            }
         }
     }
 
@@ -91,31 +86,10 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
         binding = LayoutSimpleMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         configureSystemBars()
+        bindWindowInsets()
+        ensureFragments()
+        setupBottomNavigation()
 
-        binding.appTitle.setOnLongClickListener {
-            startActivity(Intent(this, MainActivity::class.java))
-            true
-        }
-        binding.settingsButton.setOnClickListener {
-            settingsLauncher.launch(Intent(this, SimpleSettingsActivity::class.java))
-        }
-
-        binding.connectButton.setOnClickListener {
-            startConnectionActionWithDelay()
-        }
-        binding.latencyCard.setOnClickListener {
-            startLatencyTest()
-        }
-        binding.latencyInfo.setOnClickListener {
-            startLatencyTest()
-        }
-        binding.updateSubscriptionButton.setOnClickListener {
-            showSubscriptionUpdateDialog()
-        }
-
-        updateLatencyFromSelectedProfile()
-        updateSubscriptionInfo()
-        updateConnectionState(DataStore.serviceState)
         connection.connect(this, this)
         GroupManager.addListener(this)
         runOnDefaultDispatcher {
@@ -129,20 +103,102 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
                 }
             }
             onMainDispatcher {
-                updateLatencyFromSelectedProfile()
-                updateSubscriptionInfo()
+                updateFromCurrentState()
                 handleIntentAction(intent)
             }
         }
+
+        val startTab = intent?.getIntExtra(EXTRA_START_TAB, START_TAB_HOME) ?: START_TAB_HOME
+        showTab(startTab)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        showTab(intent.getIntExtra(EXTRA_START_TAB, START_TAB_HOME))
         handleIntentAction(intent)
     }
 
-    private fun startConnectionActionWithDelay() {
+    private fun bindWindowInsets() {
+        ViewCompat.setOnApplyWindowInsetsListener(binding.bottomNavigation) { view, insets ->
+            val bottom = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
+            view.updatePadding(bottom = bottom)
+            insets
+        }
+    }
+
+    private fun setupBottomNavigation() {
+        binding.bottomNavigation.setOnItemSelectedListener { item ->
+            when (item.itemId) {
+                R.id.tab_home -> showTab(START_TAB_HOME)
+                R.id.tab_subscription -> showTab(START_TAB_SUBSCRIPTION)
+                R.id.tab_settings -> showTab(START_TAB_SETTINGS)
+                else -> false
+            }
+        }
+        binding.bottomNavigation.setOnItemReselectedListener { }
+    }
+
+    private fun ensureFragments() {
+        if (supportFragmentManager.findFragmentByTag(TAG_HOME) == null) {
+            val home = SimpleHomeFragment()
+            val subscription = SimpleSubscriptionFragment()
+            val settings = SimpleSettingsFragment()
+            supportFragmentManager.commitNow {
+                add(R.id.page_container, home, TAG_HOME)
+                add(R.id.page_container, subscription, TAG_SUBSCRIPTION)
+                add(R.id.page_container, settings, TAG_SETTINGS)
+                hide(home)
+                hide(subscription)
+                hide(settings)
+            }
+        }
+    }
+
+    private fun showTab(tab: Int): Boolean {
+        ensureFragments()
+        if (currentTab == tab && fragmentForTab(tab)?.isVisible == true) return true
+        currentTab = tab
+        supportFragmentManager.commitNow {
+            setReorderingAllowed(true)
+            listOf(
+                requireHomeFragment(),
+                requireSubscriptionFragment(),
+                requireSettingsFragment()
+            ).forEach { fragment ->
+                if (fragment == fragmentForTab(tab)) {
+                    show(fragment)
+                } else {
+                    hide(fragment)
+                }
+            }
+        }
+        val checkedItemId = when (tab) {
+            START_TAB_SUBSCRIPTION -> R.id.tab_subscription
+            START_TAB_SETTINGS -> R.id.tab_settings
+            else -> R.id.tab_home
+        }
+        if (binding.bottomNavigation.selectedItemId != checkedItemId) {
+            binding.bottomNavigation.selectedItemId = checkedItemId
+        }
+        return true
+    }
+
+    private fun fragmentForTab(tab: Int) = when (tab) {
+        START_TAB_SUBSCRIPTION -> supportFragmentManager.findFragmentByTag(TAG_SUBSCRIPTION)
+        START_TAB_SETTINGS -> supportFragmentManager.findFragmentByTag(TAG_SETTINGS)
+        else -> supportFragmentManager.findFragmentByTag(TAG_HOME)
+    }
+
+    private fun requireHomeFragment() = supportFragmentManager.findFragmentByTag(TAG_HOME) as SimpleHomeFragment
+    private fun requireSubscriptionFragment() = supportFragmentManager.findFragmentByTag(TAG_SUBSCRIPTION) as SimpleSubscriptionFragment
+    private fun requireSettingsFragment() = supportFragmentManager.findFragmentByTag(TAG_SETTINGS) as SimpleSettingsFragment
+
+    fun openAdvancedMainActivity() {
+        startActivity(Intent(this, MainActivity::class.java))
+    }
+
+    fun startConnectionActionWithDelay() {
         if (connectionActionJob?.isActive == true) return
         val shouldStop = DataStore.serviceState.canStop
         updateConnectionState(
@@ -190,91 +246,7 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
         return true
     }
 
-    private fun updateConnectionState(state: BaseService.State) {
-        val failed = state == BaseService.State.Stopped && lastFailureMessage != null
-        val buttonColor = when {
-            state.connected -> R.color.simple_accent_green
-            else -> R.color.simple_button_idle
-        }
-
-        binding.connectButton.isEnabled = state != BaseService.State.Connecting &&
-                state != BaseService.State.Stopping
-        binding.connectButton.backgroundTintList = ColorStateList.valueOf(
-            ContextCompat.getColor(this, buttonColor)
-        )
-
-        when {
-            failed -> {
-                binding.connectionStatus.text = "连接失败"
-                binding.statusDescription.text = lastFailureMessage ?: "请重试"
-                binding.connectButton.text = "重新连接"
-            }
-
-            state == BaseService.State.Connecting -> {
-                binding.connectionStatus.text = "连接中"
-                binding.statusDescription.text = "正在建立连接"
-                binding.connectButton.text = "连接中..."
-            }
-
-            state == BaseService.State.Connected -> {
-                binding.connectionStatus.text = "已连接"
-                binding.statusDescription.text = "网络已受保护"
-                binding.connectButton.text = "断开"
-                if (!autoLatencyTestDone) {
-                    autoLatencyTestDone = true
-                    startLatencyTest()
-                }
-            }
-
-            state == BaseService.State.Stopping -> {
-                binding.connectionStatus.text = "停止中"
-                binding.statusDescription.text = "正在关闭连接"
-                binding.connectButton.text = "停止中..."
-            }
-
-            else -> {
-                binding.connectionStatus.text = "未连接"
-                binding.statusDescription.text = "轻触连接网络"
-                binding.connectButton.text = "连接"
-                autoLatencyTestDone = false
-            }
-        }
-    }
-
-    private fun selectedProfile(): ProxyEntity? {
-        val selected = DataStore.selectedProxy
-        if (selected <= 0L) return null
-        return SagerDatabase.proxyDao.getById(selected)
-    }
-
-    private fun updateLatencyFromSelectedProfile() {
-        val profile = selectedProfile()
-        when {
-            profile == null -> setLatencyDisplay("--", R.color.simple_text_secondary)
-            profile.status == 1 && profile.ping > 0 -> {
-                setLatencyDisplay("${profile.ping} ms", latencyColor(profile.ping))
-            }
-            profile.status == 2 || profile.status == 3 -> {
-                setLatencyDisplay("超时", R.color.material_red_500)
-            }
-            else -> setLatencyDisplay("--", R.color.simple_text_secondary)
-        }
-    }
-
-    private fun setLatencyDisplay(text: String, colorRes: Int) {
-        binding.latencyInfo.text = text
-        binding.latencyInfo.setTextColor(ContextCompat.getColor(this, colorRes))
-    }
-
-    private fun latencyColor(ping: Int): Int {
-        return when {
-            ping < 200 -> R.color.material_green_500
-            ping < 300 -> R.color.material_yellow_700
-            else -> R.color.material_red_500
-        }
-    }
-
-    private fun startLatencyTest() {
+    fun startLatencyTest() {
         if (latencyTestJob?.isActive == true) return
         val profile = selectedProfile() ?: run {
             setLatencyDisplay("--", R.color.simple_text_secondary)
@@ -314,19 +286,62 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
         }
     }
 
-    private fun updateSubscriptionInfo() {
-        val group = currentSubscriptionGroup()
-        val userInfo = group?.subscription?.subscriptionUserinfo
+    private fun selectedProfile(): ProxyEntity? {
+        val selected = DataStore.selectedProxy
+        if (selected <= 0L) return null
+        return SagerDatabase.proxyDao.getById(selected)
+    }
 
-        if (userInfo.isNullOrBlank()) {
-            binding.trafficInfo.text = "剩余 未知"
-            binding.expireInfo.text = "到期 未知"
-            binding.trafficDetail.text = "已用 未知 / 共 未知"
-            binding.trafficProgress.visibility = View.GONE
-            return
+    private fun updateFromCurrentState() {
+        val state = try {
+            connection.service?.let { BaseService.State.values()[it.state] }
+                ?: DataStore.serviceState
+        } catch (_: RemoteException) {
+            BaseService.State.Idle
         }
+        if (state != BaseService.State.Stopped) {
+            lastFailureMessage = null
+        }
+        updateLatencyFromSelectedProfile()
+        updateSubscriptionInfo()
+        updateConnectionState(state)
+    }
 
-        updateTrafficDisplay(userInfo)
+    private fun updateConnectionState(state: BaseService.State) {
+        requireHomeFragment().renderConnectionState(state, lastFailureMessage)
+        if (state == BaseService.State.Connected && !autoLatencyTestDone) {
+            autoLatencyTestDone = true
+            startLatencyTest()
+        }
+        if (state != BaseService.State.Connected && state != BaseService.State.Connecting) {
+            autoLatencyTestDone = false
+        }
+    }
+
+    private fun setLatencyDisplay(text: String, colorRes: Int) {
+        requireHomeFragment().setLatencyDisplay(text, colorRes)
+    }
+
+    private fun latencyColor(ping: Int): Int {
+        return when {
+            ping < 200 -> R.color.material_green_500
+            ping < 300 -> R.color.material_yellow_700
+            else -> R.color.material_red_500
+        }
+    }
+
+    private fun updateLatencyFromSelectedProfile() {
+        val profile = selectedProfile()
+        when {
+            profile == null -> setLatencyDisplay("--", R.color.simple_text_secondary)
+            profile.status == 1 && profile.ping > 0 -> {
+                setLatencyDisplay("${profile.ping} ms", latencyColor(profile.ping))
+            }
+            profile.status == 2 || profile.status == 3 -> {
+                setLatencyDisplay("超时", R.color.material_red_500)
+            }
+            else -> setLatencyDisplay("--", R.color.simple_text_secondary)
+        }
     }
 
     private fun currentSubscriptionGroup(): ProxyGroup? {
@@ -334,84 +349,15 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
         return groupId?.let { SagerDatabase.groupDao.getById(it) }?.takeIf { it.subscription != null }
     }
 
-    private fun subscriptionValue(userInfo: String, key: String): Long? {
-        return "$key=([0-9]+)".toRegex()
-            .find(userInfo)
-            ?.groupValues
-            ?.getOrNull(1)
-            ?.toLongOrNull()
+    private fun updateSubscriptionInfo() {
+        requireSubscriptionFragment().renderTrafficInfo(currentSubscriptionGroup()?.subscription?.subscriptionUserinfo)
     }
 
-    private fun updateTrafficDisplay(userInfo: String) {
-        val total = subscriptionValue(userInfo, "total")
-        val upload = subscriptionValue(userInfo, "upload") ?: 0L
-        val download = subscriptionValue(userInfo, "download") ?: 0L
-        val used = upload + download
-
-        if (total == null || total <= 0L) {
-            binding.trafficInfo.text = "剩余 未知"
-            binding.expireInfo.text = "到期 ${expireDateText(userInfo)}"
-            binding.trafficDetail.text = "已用 ${used.toBytesString()} / 共 未知"
-            binding.trafficProgress.visibility = View.GONE
-            return
-        }
-
-        val remaining = (total - upload - download).coerceAtLeast(0L)
-        val progress = ((used.coerceAtMost(total) * 1000L) / total).toInt()
-        binding.trafficInfo.text = "剩余 ${remaining.toBytesString()}"
-        binding.expireInfo.text = "到期 ${expireDateText(userInfo)}"
-        binding.trafficDetail.text = "已用 ${used.toBytesString()} / 共 ${total.toBytesString()}"
-        binding.trafficProgress.visibility = View.VISIBLE
-        binding.trafficProgress.progress = progress
-        binding.trafficProgress.progressTintList = ColorStateList.valueOf(
-            ContextCompat.getColor(
-                this,
-                if (progress >= 900) R.color.material_red_500 else R.color.simple_accent_green
-            )
-        )
+    fun onManagedSubscriptionChanged() {
+        refreshServiceState()
     }
 
-    private fun expireDateText(userInfo: String): String {
-        val expire = subscriptionValue(userInfo, "expire") ?: return "未知"
-        return SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(expire * 1000L))
-    }
-
-    private fun updateCurrentSubscription(throttled: Boolean) {
-        if (subscriptionUpdateJob?.isActive == true) return
-
-        binding.updateSubscriptionButton.isEnabled = false
-        binding.updateSubscriptionButton.text = "更新中"
-        subscriptionUpdateJob = runOnDefaultDispatcher {
-            val remoteResult = RemoteConfigSubscriptionManager.checkAndUpdate(!throttled)
-            val success = when {
-                remoteResult.updated -> true
-                remoteResult.configured && !remoteResult.failed -> true
-                else -> updateCurrentSubscriptionGroup(throttled)
-            }
-            val remoteFailure = remoteResult.configured && remoteResult.failed
-
-            onMainDispatcher {
-                binding.updateSubscriptionButton.isEnabled = true
-                binding.updateSubscriptionButton.text = "更新"
-                updateSubscriptionInfo()
-                when {
-                    remoteFailure && !throttled -> Toast.makeText(
-                        this@SimpleMainActivity,
-                        "远程配置获取失败",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                    !success && !throttled -> Toast.makeText(
-                        this@SimpleMainActivity,
-                        "订阅更新失败",
-                        Toast.LENGTH_SHORT
-                    )
-                        .show()
-                }
-            }
-        }
-    }
-
-    private fun showSubscriptionUpdateDialog() {
+    fun showSubscriptionUpdateDialog() {
         if (subscriptionUpdateJob?.isActive == true) return
 
         val dialog = SubscriptionUpdateProgressDialogFragment()
@@ -421,7 +367,7 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
         dialog.updateLocalStep(SubscriptionUpdateProgressDialogFragment.StepState.Pending)
         dialog.setClosable(false)
 
-        binding.updateSubscriptionButton.isEnabled = false
+        setSubscriptionActionEnabled(false)
         subscriptionUpdateJob = runOnDefaultDispatcher {
             onMainDispatcher {
                 findUpdateDialog()?.apply {
@@ -452,7 +398,7 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
                         )
                         setClosable(true)
                     }
-                    binding.updateSubscriptionButton.isEnabled = true
+                    setSubscriptionActionEnabled(true)
                     Toast.makeText(this@SimpleMainActivity, "远程配置获取失败", Toast.LENGTH_SHORT)
                         .show()
                 }
@@ -467,35 +413,43 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
                 }
             }
 
-            val localUpdated = if (managed) {
-                ManagedSubscriptionCoordinator.updateSubscription(managedSync!!.getOrThrow().groupId)
-            } else {
-                updateCurrentSubscriptionGroup(false)
+            val localUpdatedResult = runCatching {
+                if (managed) {
+                    ManagedSubscriptionCoordinator.updateSubscription(managedSync!!.getOrThrow().groupId)
+                } else {
+                    updateCurrentSubscriptionGroup(false)
+                }
             }
             onMainDispatcher {
-                if (localUpdated) {
+                if (localUpdatedResult.getOrDefault(false)) {
                     findUpdateDialog()?.apply {
                         updateLocalStep(SubscriptionUpdateProgressDialogFragment.StepState.Done)
                         setSummary("更新完成")
                         setClosable(true)
                     }
-                    updateLatencyFromSelectedProfile()
-                    updateSubscriptionInfo()
+                    updateFromCurrentState()
                 } else {
+                    val failureMessage = localUpdatedResult.exceptionOrNull()?.readableMessage
+                        ?: "订阅更新失败"
                     findUpdateDialog()?.apply {
                         updateLocalStep(
                             SubscriptionUpdateProgressDialogFragment.StepState.Failed,
-                            "订阅更新失败"
+                            failureMessage
                         )
                         setSummary("更新失败")
                         setClosable(true)
                     }
-                    Toast.makeText(this@SimpleMainActivity, "订阅更新失败", Toast.LENGTH_SHORT)
+                    Toast.makeText(this@SimpleMainActivity, failureMessage, Toast.LENGTH_SHORT)
                         .show()
                 }
-                binding.updateSubscriptionButton.isEnabled = true
+                setSubscriptionActionEnabled(true)
             }
         }
+    }
+
+    private fun setSubscriptionActionEnabled(enabled: Boolean) {
+        requireSubscriptionFragment().setUpdateButtonEnabled(enabled)
+        requireSettingsFragment().setUpdateRowEnabled(enabled)
     }
 
     private fun findUpdateDialog(): SubscriptionUpdateProgressDialogFragment? {
@@ -583,9 +537,7 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
         if (state != BaseService.State.Stopped) {
             lastFailureMessage = null
         }
-        updateLatencyFromSelectedProfile()
-        updateSubscriptionInfo()
-        updateConnectionState(state)
+        updateFromCurrentState()
     }
 
     override suspend fun groupAdd(group: ProxyGroup) {
