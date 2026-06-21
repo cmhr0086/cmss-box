@@ -117,8 +117,8 @@ async function handleAdminApi(request, env, ctx) {
     if (request.method === "GET") {
       const result = await env.DB.prepare(
         `SELECT i.id,i.code_hint,i.code_value,i.template_id,i.status,i.device_id,i.app_version,i.created_at,
-                i.expires_at,i.bound_at,i.last_seen_at,t.name AS template_name
-         FROM invites i JOIN config_templates t ON t.id=i.template_id
+                i.expires_at,i.bound_at,i.last_seen_at,COALESCE(t.name, '已删除模板') AS template_name
+         FROM invites i LEFT JOIN config_templates t ON t.id=i.template_id
          ORDER BY i.created_at DESC LIMIT 500`
       ).all();
       return json({ items: result.results });
@@ -172,8 +172,29 @@ async function handleAdminApi(request, env, ctx) {
       await env.DB.prepare(
         "UPDATE invites SET status='unused',device_id=NULL,device_public_key=NULL,key_alg=NULL,app_version=NULL,bound_at=NULL,last_seen_at=NULL WHERE id=?"
       ).bind(id).run();
-    } else if (action === "assign") {
-      await env.DB.prepare("UPDATE invites SET template_id=? WHERE id=?").bind(String(body.template_id || ""), id).run();
+    } else if (action === "change-template") {
+      const templateId = String(body.template_id || "");
+      const template = await env.DB.prepare("SELECT id,name,enabled FROM config_templates WHERE id=?").bind(templateId).first();
+      if (!template) return json({ error: "配置模板不存在" }, 404);
+      if (!template.enabled) return json({ error: "配置模板已停用", code: "TEMPLATE_DISABLED" }, 409);
+      const current = await env.DB.prepare(
+        `SELECT i.template_id, ct.name AS template_name
+         FROM invites i LEFT JOIN config_templates ct ON ct.id=i.template_id
+         WHERE i.id=?`
+      ).bind(id).first();
+      if (!current) return json({ error: "设备不存在" }, 404);
+      if (current.template_id === templateId) {
+        return json({ ok: true, unchanged: true });
+      }
+      await env.DB.prepare("UPDATE invites SET template_id=? WHERE id=?").bind(templateId, id).run();
+      ctx.waitUntil(audit(
+        env,
+        request,
+        "device.template_change",
+        id,
+        `${current.template_name || current.template_id || "未命名模板"} -> ${template.name}`
+      ));
+      return json({ ok: true });
     } else {
       return json({ error: "未知操作" }, 400);
     }
@@ -532,7 +553,26 @@ function renderDevicesContent() {
     <section class="panel device-panel list-panel">
       <div class="section-heading"><div><h2>邀请码与绑定设备</h2><p>管理设备访问权限和绑定关系</p></div><button id="refreshDevices" class="secondary" type="button">刷新</button></div>
       <div id="invites" class="list"><div class="empty-state">正在加载设备...</div></div>
-    </section>`;
+    </section>
+    <div id="templateModal" class="modal-shell hidden" aria-hidden="true">
+      <div class="modal-backdrop" data-close-modal="true"></div>
+      <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="templateModalTitle">
+        <div class="modal-header">
+          <div>
+            <h2 id="templateModalTitle">切换模板</h2>
+            <p id="templateModalSubtitle">为当前设备选择一个新的配置模板</p>
+          </div>
+        </div>
+        <div class="modal-body">
+          <div id="templateModalDevice" class="modal-device-info"></div>
+          <label>选择模板<select id="templateModalSelect" required disabled><option>正在加载模板...</option></select></label>
+        </div>
+        <div class="modal-actions">
+          <button id="cancelTemplateModal" class="secondary" type="button">取消</button>
+          <button id="saveTemplateModal" type="button" disabled>保存模板</button>
+        </div>
+      </section>
+    </div>`;
 }
 
 function commonAdminScript() {
@@ -770,6 +810,93 @@ function invitesScript() {
 function devicesScript() {
   return `
     const statusNames = {unused: '未使用', active: '已绑定', revoked: '已禁用'};
+    let assignableTemplates = [];
+    let modalClosingTimer = null;
+    const templateModalState = { item: null, saving: false };
+    function buildTemplateOptions(selectedId) {
+      const fragment = document.createDocumentFragment();
+      if (!assignableTemplates.length) {
+        const option = node('option', '', '暂无可用模板');
+        option.value = '';
+        option.disabled = true;
+        option.selected = true;
+        fragment.append(option);
+        return fragment;
+      }
+      assignableTemplates.forEach(item => {
+        const option = node('option', '', item.name + (item.enabled ? '' : '（已停用）'));
+        option.value = item.id;
+        option.disabled = !Boolean(item.enabled);
+        if (item.id === selectedId) option.selected = true;
+        fragment.append(option);
+      });
+      return fragment;
+    }
+    function modalElements() {
+      return {
+        shell: q('#templateModal'),
+        select: q('#templateModalSelect'),
+        device: q('#templateModalDevice'),
+        save: q('#saveTemplateModal'),
+        cancel: q('#cancelTemplateModal')
+      };
+    }
+    function syncTemplateSaveState() {
+      const { select, save } = modalElements();
+      const currentId = templateModalState.item?.template_id || '';
+      const nextId = select.value || '';
+      save.disabled = templateModalState.saving || !nextId || nextId === currentId || !assignableTemplates.some(item => item.id === nextId && item.enabled);
+    }
+    function closeTemplateModal(immediate = false) {
+      const { shell, select, device, save, cancel } = modalElements();
+      if (!shell || shell.classList.contains('hidden')) return;
+      if (modalClosingTimer) {
+        clearTimeout(modalClosingTimer);
+        modalClosingTimer = null;
+      }
+      const finish = () => {
+        shell.classList.add('hidden');
+        shell.classList.remove('visible');
+        shell.setAttribute('aria-hidden', 'true');
+        templateModalState.item = null;
+        templateModalState.saving = false;
+        select.disabled = true;
+        save.disabled = true;
+        cancel.disabled = false;
+        select.replaceChildren(node('option', '', '正在加载模板...'));
+        device.replaceChildren();
+      };
+      if (immediate) {
+        finish();
+        return;
+      }
+      shell.classList.remove('visible');
+      shell.setAttribute('aria-hidden', 'true');
+      modalClosingTimer = setTimeout(finish, 180);
+    }
+    function openTemplateModal(item) {
+      const { shell, select, device, save, cancel } = modalElements();
+      if (modalClosingTimer) {
+        clearTimeout(modalClosingTimer);
+        modalClosingTimer = null;
+      }
+      templateModalState.item = item;
+      templateModalState.saving = false;
+      device.replaceChildren(
+        node('strong', '', item.code_value || ('历史邀请码不可查看（****-' + item.code_hint + '）')),
+        node('span', '', '当前模板：' + (item.template_name || '未命名模板')),
+        node('small', '', '设备：' + (item.device_id || '未绑定'))
+      );
+      select.replaceChildren(buildTemplateOptions(item.template_id));
+      select.disabled = !assignableTemplates.length;
+      cancel.disabled = false;
+      shell.classList.remove('hidden');
+      shell.setAttribute('aria-hidden', 'false');
+      requestAnimationFrame(() => shell.classList.add('visible'));
+      syncTemplateSaveState();
+      if (!select.disabled) select.focus();
+      else save.focus();
+    }
     function renderDevices(items) {
       const list = q('#invites');
       list.replaceChildren();
@@ -785,6 +912,11 @@ function devicesScript() {
         details.append(node('span', '', '模板：' + item.template_name + ' · 设备：' + (item.device_id || '未绑定')));
         details.append(node('small', '', '绑定时间：' + time(item.bound_at) + ' · 最近访问：' + time(item.last_seen_at) + ' · 过期时间：' + expireTime(item.expires_at)));
         const actions = node('div', 'actions');
+        const templateButton = node('button', 'secondary', '切换模板');
+        templateButton.type = 'button';
+        templateButton.dataset.id = item.id;
+        templateButton.dataset.action = 'change-template';
+        actions.append(templateButton);
         [['revoke', '禁用并删除', 'danger'], ['restore', '恢复', 'secondary'], ['unbind', '解绑', 'secondary']].forEach(value => {
           const button = node('button', value[2], value[1]);
           button.type = 'button';
@@ -793,15 +925,28 @@ function devicesScript() {
           if ((value[0] === 'revoke' && item.status === 'revoked') || (value[0] === 'restore' && item.status !== 'revoked') || (value[0] === 'unbind' && !item.device_id)) button.disabled = true;
           actions.append(button);
         });
+        templateButton.dataset.item = JSON.stringify({
+          id: item.id,
+          code_hint: item.code_hint,
+          code_value: item.code_value || '',
+          template_id: item.template_id,
+          template_name: item.template_name || '',
+          device_id: item.device_id || ''
+        });
         row.append(details, actions);
         list.append(row);
       });
+    }
+    async function loadAssignableTemplates() {
+      const data = await api('/admin/api/templates');
+      assignableTemplates = data.items || [];
     }
     async function loadDevices() {
       const list = q('#invites');
       list.replaceChildren(node('div', 'empty-state', '正在加载设备...'));
       setStatus('');
       try {
+        await loadAssignableTemplates();
         const data = await api('/admin/api/invites');
         renderDevices(data.items || []);
       } catch (error) {
@@ -809,9 +954,47 @@ function devicesScript() {
       }
     }
     q('#refreshDevices').addEventListener('click', loadDevices);
+    q('#templateModalSelect').addEventListener('change', syncTemplateSaveState);
+    q('#cancelTemplateModal').addEventListener('click', () => closeTemplateModal());
+    q('#templateModal').addEventListener('click', event => {
+      if (event.target.dataset.closeModal === 'true' && !templateModalState.saving) closeTemplateModal();
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && q('#templateModal').classList.contains('visible') && !templateModalState.saving) closeTemplateModal();
+    });
+    q('#saveTemplateModal').addEventListener('click', async () => {
+      const { select, save, cancel } = modalElements();
+      const item = templateModalState.item;
+      if (!item || save.disabled) return;
+      templateModalState.saving = true;
+      select.disabled = true;
+      save.disabled = true;
+      cancel.disabled = true;
+      setStatus('正在切换模板...', 'info');
+      try {
+        await api('/admin/api/invites/' + encodeURIComponent(item.id) + '/action', {
+          method: 'POST',
+          body: JSON.stringify({action: 'change-template', template_id: select.value})
+        });
+        closeTemplateModal();
+        await loadDevices();
+        setStatus('模板已切换', 'success');
+      } catch (error) {
+        templateModalState.saving = false;
+        select.disabled = !assignableTemplates.length;
+        cancel.disabled = false;
+        setStatus('切换失败：' + error.message);
+        syncTemplateSaveState();
+      }
+    });
     q('#invites').addEventListener('click', async event => {
       const button = event.target.closest('button[data-action]');
       if (!button || button.disabled) return;
+      if (button.dataset.action === 'change-template') {
+        const item = JSON.parse(button.dataset.item || '{}');
+        openTemplateModal(item);
+        return;
+      }
       if (button.dataset.action === 'revoke' && !confirm('确认禁用这个设备并删除对应邀请码？删除后该设备需要重新获取邀请码。')) return;
       if (button.dataset.action === 'unbind' && !confirm('确认解绑该设备？解绑后需要重新激活。')) return;
       button.disabled = true;
@@ -830,8 +1013,8 @@ function devicesScript() {
 
 function page(title, body) {
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>
-  :root{color-scheme:dark;font-family:system-ui,sans-serif;background:#080b12;color:#f1f5f9}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:#080b12}h1,h2,p{margin-top:0}h1{font-size:28px;margin-bottom:7px}h2{font-size:19px;margin-bottom:5px}p,small,.field-hint{color:#94a3b8}.login-card{max-width:420px;margin:12vh auto 0;background:#121826;border:1px solid #293449;border-radius:8px;padding:24px}.admin-shell{width:100%;min-height:100vh;display:grid;grid-template-columns:220px minmax(0,1fr)}.sidebar{position:sticky;top:0;height:100vh;padding:28px 18px;border-right:1px solid #1e293b;background:#0d1320;display:flex;flex-direction:column}.brand{padding:0 12px 24px}.brand strong,.brand span{display:block}.brand strong{font-size:21px}.brand span{margin-top:4px;color:#94a3b8}.sidebar nav{display:grid;gap:6px}.nav-link{padding:11px 12px;border-radius:6px;color:#aebbd0;text-decoration:none;font-weight:650}.nav-link:hover,.nav-link.active{background:#1b2639;color:#f8fafc}.logout{margin-top:auto}.workspace{min-width:0;padding:32px 40px 48px;display:flex;flex-direction:column;align-items:flex-start}.page-header{width:min(100%,960px);margin-bottom:24px;border-bottom:1px solid #1e293b}.page-header p{margin-bottom:22px}.panel{width:min(100%,960px);background:#121826;border:1px solid #293449;border-radius:8px;padding:22px;margin-bottom:18px}.form-panel,.invite-panel{width:min(100%,860px);max-width:860px}.device-panel{width:min(100%,1120px);max-width:1120px}.section-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px}.section-heading p{margin-bottom:0}.list-panel{padding-bottom:8px}form{display:grid;gap:14px}label{display:grid;gap:7px;font-size:13px;color:#cbd5e1}input,select{width:100%;padding:11px;border:1px solid #475569;border-radius:6px;background:#020617;color:#f8fafc;font:inherit}input:focus,select:focus{outline:2px solid #10b981;outline-offset:1px}.check{display:flex;align-items:center;gap:9px}.check input{width:18px;height:18px}.form-row{display:grid;grid-template-columns:1fr 1fr;gap:14px}.form-actions,.actions{display:flex;gap:10px;flex-wrap:wrap}button,.button{border:0;border-radius:6px;background:#10b981;color:#04120d;padding:10px 15px;font:inherit;font-weight:750;cursor:pointer;text-decoration:none;text-align:center}button:hover,.button:hover{filter:brightness(1.08)}button:disabled{opacity:.45;cursor:not-allowed;filter:none}.secondary{background:#334155;color:#f8fafc}.danger{background:#dc2626;color:white}.compact{padding:7px 12px}.hidden{display:none!important}.list{border-top:1px solid #293449}.list-row,.device-row{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:16px 0;border-bottom:1px solid #243047}.list-main{min-width:0;display:grid;gap:5px}.list-main span,.list-main small{overflow-wrap:anywhere}.url-text{color:#aebbd0}.empty-state{padding:32px 12px;text-align:center;color:#94a3b8}.empty-state p{margin-bottom:12px}.device-title{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.badge{display:inline-flex;width:max-content;padding:3px 8px;border-radius:999px;font-size:12px;background:#334155;color:#dbeafe}.badge.active{background:#064e3b;color:#a7f3d0}.badge.revoked{background:#7f1d1d;color:#fecaca}.code-list{display:grid;gap:10px}.code-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;background:#090e18;border:1px solid #293449;border-radius:6px}.code-row code{font-size:16px;color:#6ee7b7}.field-hint{display:flex;align-items:center;gap:8px;font-size:13px}.inline-link,.link-button{color:#6ee7b7}.link-button{border:0;background:none;padding:0}.status{display:none;width:min(100%,960px);margin-top:12px;padding:11px 13px;border-radius:6px}.status.visible{display:block}.status.error{background:#3f151b;color:#fecaca}.status.success{background:#073c30;color:#a7f3d0}.status.info{background:#172554;color:#bfdbfe}
-  @media(max-width:800px){.admin-shell{display:block}.sidebar{position:static;width:100%;height:auto;padding:16px;border-right:0;border-bottom:1px solid #1e293b}.brand{padding:0 4px 14px}.sidebar nav{display:flex;overflow-x:auto}.nav-link{white-space:nowrap}.logout{margin-top:14px;display:block}.workspace{padding:22px 14px 36px}.form-row{grid-template-columns:1fr}.list-row,.device-row,.section-heading{align-items:stretch;flex-direction:column}.actions button{flex:1}.page-header{margin-bottom:18px;width:100%}.panel,.form-panel,.invite-panel,.device-panel,.status{width:100%;max-width:none}}
+  :root{color-scheme:dark;font-family:system-ui,sans-serif;background:#080b12;color:#f1f5f9}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:#080b12}h1,h2,p{margin-top:0}h1{font-size:28px;margin-bottom:7px}h2{font-size:19px;margin-bottom:5px}p,small,.field-hint{color:#94a3b8}.login-card{max-width:420px;margin:12vh auto 0;background:#121826;border:1px solid #293449;border-radius:8px;padding:24px}.admin-shell{width:100%;min-height:100vh;display:grid;grid-template-columns:220px minmax(0,1fr)}.sidebar{position:sticky;top:0;height:100vh;padding:28px 18px;border-right:1px solid #1e293b;background:#0d1320;display:flex;flex-direction:column}.brand{padding:0 12px 24px}.brand strong,.brand span{display:block}.brand strong{font-size:21px}.brand span{margin-top:4px;color:#94a3b8}.sidebar nav{display:grid;gap:6px}.nav-link{padding:11px 12px;border-radius:6px;color:#aebbd0;text-decoration:none;font-weight:650}.nav-link:hover,.nav-link.active{background:#1b2639;color:#f8fafc}.logout{margin-top:auto}.workspace{min-width:0;padding:32px 40px 48px;display:flex;flex-direction:column;align-items:flex-start}.page-header{width:min(100%,960px);margin-bottom:24px;border-bottom:1px solid #1e293b}.page-header p{margin-bottom:22px}.panel{width:min(100%,960px);background:#121826;border:1px solid #293449;border-radius:8px;padding:22px;margin-bottom:18px}.form-panel,.invite-panel{width:min(100%,860px);max-width:860px}.device-panel{width:min(100%,1120px);max-width:1120px}.section-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px}.section-heading p{margin-bottom:0}.list-panel{padding-bottom:8px}form{display:grid;gap:14px}label{display:grid;gap:7px;font-size:13px;color:#cbd5e1}input,select{width:100%;padding:11px;border:1px solid #475569;border-radius:6px;background:#020617;color:#f8fafc;font:inherit}input:focus,select:focus{outline:2px solid #10b981;outline-offset:1px}.check{display:flex;align-items:center;gap:9px}.check input{width:18px;height:18px}.form-row{display:grid;grid-template-columns:1fr 1fr;gap:14px}.form-actions,.actions{display:flex;gap:10px;flex-wrap:wrap}.device-row .actions{align-self:center;justify-content:flex-end}.device-row .actions button{white-space:nowrap}button,.button{border:0;border-radius:6px;background:#10b981;color:#04120d;padding:10px 15px;font:inherit;font-weight:750;cursor:pointer;text-decoration:none;text-align:center}button:hover,.button:hover{filter:brightness(1.08)}button:disabled{opacity:.45;cursor:not-allowed;filter:none}.secondary{background:#334155;color:#f8fafc}.danger{background:#dc2626;color:white}.compact{padding:7px 12px}.hidden{display:none!important}.list{border-top:1px solid #293449}.list-row,.device-row{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:16px 0;border-bottom:1px solid #243047}.list-main{min-width:0;display:grid;gap:5px;flex:1}.list-main span,.list-main small{overflow-wrap:anywhere}.url-text{color:#aebbd0}.empty-state{padding:32px 12px;text-align:center;color:#94a3b8}.empty-state p{margin-bottom:12px}.device-title{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.badge{display:inline-flex;width:max-content;padding:3px 8px;border-radius:999px;font-size:12px;background:#334155;color:#dbeafe}.badge.active{background:#064e3b;color:#a7f3d0}.badge.revoked{background:#7f1d1d;color:#fecaca}.code-list{display:grid;gap:10px}.code-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;background:#090e18;border:1px solid #293449;border-radius:6px}.code-row code{font-size:16px;color:#6ee7b7}.field-hint{display:flex;align-items:center;gap:8px;font-size:13px}.inline-link,.link-button{color:#6ee7b7}.link-button{border:0;background:none;padding:0}.status{display:none;width:min(100%,960px);margin-top:12px;padding:11px 13px;border-radius:6px}.status.visible{display:block}.status.error{background:#3f151b;color:#fecaca}.status.success{background:#073c30;color:#a7f3d0}.status.info{background:#172554;color:#bfdbfe}.modal-shell{position:fixed;inset:0;display:grid;place-items:center;padding:20px;opacity:0;pointer-events:none;transition:opacity .18s ease;z-index:50}.modal-shell.visible{opacity:1;pointer-events:auto}.modal-backdrop{position:absolute;inset:0;background:rgba(2,6,23,.72)}.modal-card{position:relative;z-index:1;width:min(100%,520px);background:#121826;border:1px solid #293449;border-radius:12px;padding:22px;box-shadow:0 24px 80px rgba(0,0,0,.45);transform:translateY(12px) scale(.98);opacity:0;transition:transform .18s ease,opacity .18s ease}.modal-shell.visible .modal-card{transform:translateY(0) scale(1);opacity:1}.modal-header{display:grid;gap:8px;margin-bottom:18px}.modal-header p{margin-bottom:0}.modal-body{display:grid;gap:14px}.modal-device-info{display:grid;gap:6px;padding:14px;border:1px solid #243047;border-radius:8px;background:#090e18}.modal-device-info strong{font-size:18px}.modal-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:18px}
+  @media(max-width:800px){.admin-shell{display:block}.sidebar{position:static;width:100%;height:auto;padding:16px;border-right:0;border-bottom:1px solid #1e293b}.brand{padding:0 4px 14px}.sidebar nav{display:flex;overflow-x:auto}.nav-link{white-space:nowrap}.logout{margin-top:14px;display:block}.workspace{padding:22px 14px 36px}.form-row{grid-template-columns:1fr}.list-row,.device-row,.section-heading{align-items:stretch;flex-direction:column}.actions button,.modal-actions button{flex:1}.page-header{margin-bottom:18px;width:100%}.panel,.form-panel,.invite-panel,.device-panel,.status{width:100%;max-width:none}.modal-shell{padding:14px}.modal-card{width:100%;padding:18px}}
   </style></head><body>${body}</body></html>`;
 }
 
