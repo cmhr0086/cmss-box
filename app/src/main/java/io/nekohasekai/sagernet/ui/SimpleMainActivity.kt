@@ -26,9 +26,7 @@ import io.nekohasekai.sagernet.database.ProxyEntity
 import io.nekohasekai.sagernet.database.ProxyGroup
 import io.nekohasekai.sagernet.database.SagerDatabase
 import io.nekohasekai.sagernet.databinding.LayoutSimpleMainBinding
-import io.nekohasekai.sagernet.group.BuiltinSubscriptionInitializer
-import io.nekohasekai.sagernet.group.GroupUpdater
-import io.nekohasekai.sagernet.group.RemoteConfigSubscriptionManager
+import io.nekohasekai.sagernet.managed.ManagedApiException
 import io.nekohasekai.sagernet.managed.ManagedSubscriptionCoordinator
 import io.nekohasekai.sagernet.ktx.onMainDispatcher
 import io.nekohasekai.sagernet.ktx.readableMessage
@@ -93,16 +91,34 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
         connection.connect(this, this)
         GroupManager.addListener(this)
         runOnDefaultDispatcher {
-            if (!ManagedSubscriptionCoordinator.isActivated) {
-                val remoteResult = RemoteConfigSubscriptionManager.checkAndUpdate(false)
-                if (!remoteResult.updated) {
-                    BuiltinSubscriptionInitializer.initializeIfNeeded()
-                    if (!remoteResult.configured) {
-                        updateCurrentSubscriptionGroup(true)
+            var activationRequiredMessage: String? = null
+            if (ManagedSubscriptionCoordinator.isActivated) {
+                val refreshResult = runCatching { ManagedSubscriptionCoordinator.refresh() }
+                refreshResult.exceptionOrNull()?.let { error ->
+                    val revoked = (error as? ManagedApiException)?.revoked == true
+                    val message = if (revoked) {
+                        "设备授权已失效，请重新输入邀请码激活"
+                    } else {
+                        error.readableMessage
+                    }
+                    if (revoked) {
+                        activationRequiredMessage = message
+                    } else {
+                        lastFailureMessage = message
                     }
                 }
+            } else {
+                activationRequiredMessage = "请先输入邀请码激活设备"
             }
             onMainDispatcher {
+                activationRequiredMessage?.let { message ->
+                    Toast.makeText(this@SimpleMainActivity, message, Toast.LENGTH_LONG).show()
+                    startActivity(Intent(this@SimpleMainActivity, ActivationActivity::class.java).apply {
+                        putExtra(ActivationActivity.EXTRA_FORCE_INPUT, true)
+                    })
+                    finish()
+                    return@onMainDispatcher
+                }
                 updateFromCurrentState()
                 handleIntentAction(intent)
             }
@@ -369,29 +385,46 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
 
         setSubscriptionActionEnabled(false)
         subscriptionUpdateJob = runOnDefaultDispatcher {
+            if (!ManagedSubscriptionCoordinator.isActivated) {
+                val message = "请先输入邀请码激活设备"
+                onMainDispatcher {
+                    findUpdateDialog()?.apply {
+                        setSummary("需要激活")
+                        updateRemoteStep(
+                            SubscriptionUpdateProgressDialogFragment.StepState.Failed,
+                            message
+                        )
+                        updateLocalStep(
+                            SubscriptionUpdateProgressDialogFragment.StepState.Failed,
+                            "未激活设备不能更新订阅"
+                        )
+                        setClosable(true)
+                    }
+                    setSubscriptionActionEnabled(true)
+                    Toast.makeText(this@SimpleMainActivity, message, Toast.LENGTH_SHORT).show()
+                }
+                return@runOnDefaultDispatcher
+            }
+
             onMainDispatcher {
                 findUpdateDialog()?.apply {
-                    setSummary("正在更新远端订阅配置")
+                    setSummary("正在验证设备并同步模板")
                     updateRemoteStep(SubscriptionUpdateProgressDialogFragment.StepState.Running)
                 }
             }
 
-            val managed = ManagedSubscriptionCoordinator.isActivated
-            val managedSync = if (managed) {
-                runCatching { ManagedSubscriptionCoordinator.syncConfigOnly() }
-            } else null
-            val remoteResult = if (!managed) {
-                RemoteConfigSubscriptionManager.syncRemoteConfigOnly(true)
-            } else null
-            val remoteFailure = managedSync?.exceptionOrNull()?.readableMessage
-                ?: remoteResult?.errorMessage
-            val remoteConfigured = managedSync?.isSuccess == true ||
-                    (remoteResult?.configured == true && !remoteResult.failed)
-            if (!remoteConfigured) {
-                val message = remoteFailure ?: "远程配置未配置"
+            val managedSync = runCatching { ManagedSubscriptionCoordinator.syncConfigOnly() }
+            if (managedSync.isFailure) {
+                val message = managedSync.exceptionOrNull()?.let { error ->
+                    if ((error as? ManagedApiException)?.revoked == true) {
+                        "设备授权已失效，请重新输入邀请码激活"
+                    } else {
+                        error.readableMessage
+                    }
+                } ?: "设备验证失败"
                 onMainDispatcher {
                     findUpdateDialog()?.apply {
-                        setSummary("更新失败")
+                        setSummary("验证失败")
                         updateRemoteStep(
                             SubscriptionUpdateProgressDialogFragment.StepState.Failed,
                             message
@@ -399,8 +432,7 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
                         setClosable(true)
                     }
                     setSubscriptionActionEnabled(true)
-                    Toast.makeText(this@SimpleMainActivity, "远程配置获取失败", Toast.LENGTH_SHORT)
-                        .show()
+                    Toast.makeText(this@SimpleMainActivity, message, Toast.LENGTH_SHORT).show()
                 }
                 return@runOnDefaultDispatcher
             }
@@ -414,11 +446,7 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
             }
 
             val localUpdatedResult = runCatching {
-                if (managed) {
-                    ManagedSubscriptionCoordinator.updateSubscription(managedSync!!.getOrThrow().groupId)
-                } else {
-                    updateCurrentSubscriptionGroup(false)
-                }
+                ManagedSubscriptionCoordinator.updateSubscription(managedSync.getOrThrow().groupId)
             }
             onMainDispatcher {
                 if (localUpdatedResult.getOrDefault(false)) {
@@ -463,18 +491,6 @@ class SimpleMainActivity : ThemedActivity(), SagerConnection.Callback, GroupMana
             intent.removeExtra(EXTRA_OPEN_UPDATE_DIALOG)
             showSubscriptionUpdateDialog()
         }
-    }
-
-    private suspend fun updateCurrentSubscriptionGroup(throttled: Boolean): Boolean {
-        val group = currentSubscriptionGroup() ?: return false
-        val subscription = group.subscription ?: return false
-        if (throttled) {
-            val now = (System.currentTimeMillis() / 1000L).toInt()
-            if (now - subscription.lastUpdated < 10 * 60) return true
-        }
-        return runCatching {
-            GroupUpdater.executeUpdate(group, false)
-        }.getOrElse { false }
     }
 
     override fun stateChanged(state: BaseService.State, profileName: String?, msg: String?) {
