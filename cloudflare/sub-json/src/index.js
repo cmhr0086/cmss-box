@@ -116,9 +116,16 @@ async function handleAdminApi(request, env, ctx) {
   if (path === "/admin/api/invites") {
     if (request.method === "GET") {
       const result = await env.DB.prepare(
-        `SELECT i.id,i.code_hint,i.code_value,i.template_id,i.status,i.device_id,i.app_version,i.created_at,
-                i.expires_at,i.bound_at,i.last_seen_at,COALESCE(t.name, '已删除模板') AS template_name
-         FROM invites i LEFT JOIN config_templates t ON t.id=i.template_id
+        `SELECT i.id,i.code_hint,i.code_value,i.template_id,i.status,i.max_devices,i.created_at,i.expires_at,
+                COALESCE(t.name, '已删除模板') AS template_name,
+                COUNT(d.id) AS bound_device_count,
+                MAX(d.bound_at) AS latest_bound_at,
+                MAX(d.last_seen_at) AS latest_seen_at
+         FROM invites i
+         LEFT JOIN config_templates t ON t.id=i.template_id
+         LEFT JOIN invite_devices d ON d.invite_id=i.id
+         WHERE i.status!='revoked'
+         GROUP BY i.id
          ORDER BY i.created_at DESC LIMIT 500`
       ).all();
       return json({ items: result.results });
@@ -127,6 +134,7 @@ async function handleAdminApi(request, env, ctx) {
       const body = await request.json();
       const templateId = String(body.template_id || "");
       const count = clampInt(body.count, 1, 50, 1);
+      const maxDevices = clampInt(body.max_devices, 0, 9999, 1);
       const now = nowSeconds();
       const expireDays = body.expire_days === undefined || body.expire_days === null
         ? null
@@ -142,11 +150,11 @@ async function handleAdminApi(request, env, ctx) {
         const code = generateInviteCode();
         codes.push(code);
         statements.push(env.DB.prepare(
-          "INSERT INTO invites(id,code_hash,code_hint,code_value,template_id,status,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?)"
-        ).bind(crypto.randomUUID(), await sha256Hex(normalizeInviteCode(code)), code.slice(-4), code, templateId, "unused", now, expiresAt));
+          "INSERT INTO invites(id,code_hash,code_hint,code_value,template_id,status,created_at,expires_at,max_devices) VALUES(?,?,?,?,?,?,?,?,?)"
+        ).bind(crypto.randomUUID(), await sha256Hex(normalizeInviteCode(code)), code.slice(-4), code, templateId, "unused", now, expiresAt, maxDevices));
       }
       await env.DB.batch(statements);
-      ctx.waitUntil(audit(env, request, "invite.create", templateId, `count=${count}`));
+      ctx.waitUntil(audit(env, request, "invite.create", templateId, `count=${count},max_devices=${maxDevices}`));
       return json({ codes }, 201);
     }
   }
@@ -155,23 +163,21 @@ async function handleAdminApi(request, env, ctx) {
     const body = await request.json();
     const action = String(body.action || "");
     const id = actionMatch[1];
+    let auditDetail = "";
     if (action === "revoke") {
-      const invite = await env.DB.prepare("SELECT device_id FROM invites WHERE id=?").bind(id).first();
+      const invite = await env.DB.prepare("SELECT id FROM invites WHERE id=?").bind(id).first();
       if (!invite) return json({ error: "邀请码不存在" }, 404);
-      if (invite.device_id) {
-        await env.DB.prepare("DELETE FROM request_nonces WHERE device_id=?").bind(invite.device_id).run();
-      }
+      const removed = await clearInviteDevices(env, id);
       await env.DB.prepare("DELETE FROM invites WHERE id=?").bind(id).run();
-    } else if (action === "restore") {
-      await env.DB.prepare("UPDATE invites SET status=CASE WHEN device_id IS NULL THEN 'unused' ELSE 'active' END WHERE id=?").bind(id).run();
+      auditDetail = `devices=${removed}`;
     } else if (action === "unbind") {
-      const invite = await env.DB.prepare("SELECT device_id FROM invites WHERE id=?").bind(id).first();
-      if (invite?.device_id) {
-        await env.DB.prepare("DELETE FROM request_nonces WHERE device_id=?").bind(invite.device_id).run();
-      }
+      const invite = await env.DB.prepare("SELECT id FROM invites WHERE id=?").bind(id).first();
+      if (!invite) return json({ error: "邀请码不存在" }, 404);
+      const removed = await clearInviteDevices(env, id);
       await env.DB.prepare(
         "UPDATE invites SET status='unused',device_id=NULL,device_public_key=NULL,key_alg=NULL,app_version=NULL,bound_at=NULL,last_seen_at=NULL WHERE id=?"
       ).bind(id).run();
+      auditDetail = `devices=${removed}`;
     } else if (action === "change-template") {
       const templateId = String(body.template_id || "");
       const template = await env.DB.prepare("SELECT id,name,enabled FROM config_templates WHERE id=?").bind(templateId).first();
@@ -198,7 +204,7 @@ async function handleAdminApi(request, env, ctx) {
     } else {
       return json({ error: "未知操作" }, 400);
     }
-    ctx.waitUntil(audit(env, request, `invite.${action}`, id, ""));
+    ctx.waitUntil(audit(env, request, `invite.${action}`, id, auditDetail));
     return json({ ok: true });
   }
   return json({ error: "Not Found" }, 404);
@@ -221,31 +227,45 @@ async function activateDevice(request, env, ctx) {
   const codeHash = await sha256Hex(normalizedCode);
   const now = nowSeconds();
   const invite = await env.DB.prepare(
-    `SELECT id,status,device_id,device_public_key,key_alg
+    `SELECT id,status,max_devices
      FROM invites WHERE code_hash=? AND (expires_at IS NULL OR expires_at>?)`
   ).bind(codeHash, now).first();
   if (!invite) {
     await env.CONFIG_KV.put(rateKey, String(failures + 1), { expirationTtl: 600 });
     return json({ error: "邀请码无效、已使用或已过期", code: "INVITE_UNAVAILABLE" }, 409);
   }
+  if (invite.status === "revoked") {
+    await env.CONFIG_KV.put(rateKey, String(failures + 1), { expirationTtl: 600 });
+    return json({ error: "邀请码已停用", code: "INVITE_REVOKED" }, 409);
+  }
 
   let deviceId = "";
   let status = 201;
-  if (invite.status === "unused") {
-    deviceId = crypto.randomUUID();
-    await env.DB.prepare(
-      `UPDATE invites SET status='active',device_id=?,device_public_key=?,key_alg=?,app_version=?,bound_at=?,last_seen_at=?
-       WHERE id=?`
-    ).bind(deviceId, publicKey, keyAlg, String(body.app_version || ""), now, now, invite.id).run();
-  } else if (invite.status === "active" && invite.device_public_key === publicKey && invite.key_alg === keyAlg) {
-    deviceId = invite.device_id;
+  const existing = await env.DB.prepare(
+    `SELECT device_id
+     FROM invite_devices
+     WHERE invite_id=? AND device_public_key=? AND key_alg=?`
+  ).bind(invite.id, publicKey, keyAlg).first();
+  if (existing?.device_id) {
+    deviceId = existing.device_id;
     status = 200;
     await env.DB.prepare(
-      "UPDATE invites SET app_version=?,last_seen_at=? WHERE id=?"
-    ).bind(String(body.app_version || ""), now, invite.id).run();
+      "UPDATE invite_devices SET app_version=?,last_seen_at=? WHERE invite_id=? AND device_id=?"
+    ).bind(String(body.app_version || ""), now, invite.id, deviceId).run();
+    await refreshInviteState(env, invite.id);
   } else {
-    await env.CONFIG_KV.put(rateKey, String(failures + 1), { expirationTtl: 600 });
-    return json({ error: "邀请码无效、已使用或已过期", code: "INVITE_UNAVAILABLE" }, 409);
+    const boundCount = await countInviteDevices(env, invite.id);
+    const maxDevices = Number(invite.max_devices ?? 1);
+    if (maxDevices > 0 && boundCount >= maxDevices) {
+      await env.CONFIG_KV.put(rateKey, String(failures + 1), { expirationTtl: 600 });
+      return json({ error: "邀请码可绑定设备数量已达上限", code: "INVITE_DEVICE_LIMIT_REACHED" }, 409);
+    }
+    deviceId = crypto.randomUUID();
+    await env.DB.prepare(
+      `INSERT INTO invite_devices(id,invite_id,device_id,device_public_key,key_alg,app_version,bound_at,last_seen_at)
+       VALUES(?,?,?,?,?,?,?,?)`
+    ).bind(crypto.randomUUID(), invite.id, deviceId, publicKey, keyAlg, String(body.app_version || ""), now, now).run();
+    await refreshInviteState(env, invite.id);
   }
 
   await env.CONFIG_KV.delete(rateKey);
@@ -308,9 +328,12 @@ async function authenticateDevice(request, env, ctx) {
     return { response: json({ error: "设备时间无效", code: "CLOCK_SKEW", server_time: nowSeconds() }, 401) };
   }
   const record = await env.DB.prepare(
-    `SELECT i.id,i.status,i.device_id,i.device_public_key,i.key_alg,t.name AS template_name,
+    `SELECT i.id,i.status,d.device_id,d.device_public_key,d.key_alg,t.name AS template_name,
             t.enabled,t.version AS template_version,t.update_interval_minutes,t.upstream_sub_url
-     FROM invites i JOIN config_templates t ON t.id=i.template_id WHERE i.device_id=?`
+     FROM invite_devices d
+     JOIN invites i ON i.id=d.invite_id
+     JOIN config_templates t ON t.id=i.template_id
+     WHERE d.device_id=?`
   ).bind(deviceId).first();
   if (!record) return { response: json({ error: "设备不存在", code: "DEVICE_NOT_FOUND" }, 403) };
   if (record.status !== "active") return { response: json({ error: "设备已停用", code: "DEVICE_REVOKED" }, 403) };
@@ -326,6 +349,7 @@ async function authenticateDevice(request, env, ctx) {
     return { response: json({ error: "重复请求", code: "REPLAYED_REQUEST" }, 409) };
   }
   ctx.waitUntil(env.DB.batch([
+    env.DB.prepare("UPDATE invite_devices SET last_seen_at=? WHERE device_id=?").bind(nowSeconds(), deviceId),
     env.DB.prepare("UPDATE invites SET last_seen_at=? WHERE id=?").bind(nowSeconds(), record.id),
     env.DB.prepare("DELETE FROM request_nonces WHERE expires_at<?").bind(nowSeconds()),
   ]));
@@ -346,6 +370,56 @@ async function verifyDeviceSignature(record, canonical, signature) {
   } catch {
     return false;
   }
+}
+
+async function countInviteDevices(env, inviteId) {
+  const result = await env.DB.prepare("SELECT COUNT(1) AS count FROM invite_devices WHERE invite_id=?").bind(inviteId).first();
+  return Number(result?.count || 0);
+}
+
+async function clearInviteDevices(env, inviteId) {
+  const devices = await env.DB.prepare("SELECT device_id FROM invite_devices WHERE invite_id=?").bind(inviteId).all();
+  const deviceIds = (devices.results || []).map(item => item.device_id).filter(Boolean);
+  const statements = [];
+  for (const deviceId of deviceIds) {
+    statements.push(env.DB.prepare("DELETE FROM request_nonces WHERE device_id=?").bind(deviceId));
+  }
+  statements.push(env.DB.prepare("DELETE FROM invite_devices WHERE invite_id=?").bind(inviteId));
+  await env.DB.batch(statements);
+  return deviceIds.length;
+}
+
+async function refreshInviteState(env, inviteId) {
+  const summary = await env.DB.prepare(
+    `SELECT i.status,
+            COUNT(d.id) AS bound_device_count,
+            MAX(d.bound_at) AS latest_bound_at,
+            MAX(d.last_seen_at) AS latest_seen_at,
+            (
+              SELECT app_version
+              FROM invite_devices
+              WHERE invite_id=i.id
+              ORDER BY last_seen_at DESC, bound_at DESC, id DESC
+              LIMIT 1
+            ) AS latest_app_version
+     FROM invites i
+     LEFT JOIN invite_devices d ON d.invite_id=i.id
+     WHERE i.id=?
+     GROUP BY i.id`
+  ).bind(inviteId).first();
+  if (!summary) return;
+  const nextStatus = summary.status === "revoked"
+    ? "revoked"
+    : (Number(summary.bound_device_count || 0) > 0 ? "active" : "unused");
+  await env.DB.prepare(
+    "UPDATE invites SET status=?,app_version=?,bound_at=?,last_seen_at=? WHERE id=?"
+  ).bind(
+    nextStatus,
+    summary.latest_app_version || null,
+    summary.latest_bound_at || null,
+    summary.latest_seen_at || null,
+    inviteId
+  ).run();
 }
 
 function normalizeTemplate(body) {
@@ -533,15 +607,19 @@ function renderTemplatesContent() {
 function renderInvitesContent() {
   return `
     <section class="panel invite-panel">
-      <div class="section-heading"><div><h2>生成邀请码</h2><p>邀请码只能绑定一台设备</p></div></div>
+      <div class="section-heading"><div><h2>生成邀请码</h2><p>可为同一个邀请码设置可复用设备数量</p></div></div>
       <form id="inviteForm">
         <label>配置模板<select id="inviteTemplate" required disabled><option>正在加载模板...</option></select></label>
         <div id="templateHint" class="field-hint"></div>
         <div class="form-row">
           <label>数量<input id="inviteCount" type="number" value="1" min="1" max="50"></label>
-          <label>有效天数<input id="inviteExpireDays" type="number" value="0" min="0" max="36500"></label>
+          <label>可复用设备数量<input id="inviteMaxDevices" type="number" value="1" min="0" max="9999"></label>
         </div>
-        <p class="field-hint">有效天数输入 0 表示不限时。</p>
+        <div class="form-row">
+          <label>有效天数<input id="inviteExpireDays" type="number" value="0" min="0" max="36500"></label>
+          <div></div>
+        </div>
+        <p class="field-hint">可复用设备数量输入 1 表示单设备，输入 0 表示不限。有效天数输入 0 表示不限时。</p>
         <button id="createInvites" type="submit" disabled>生成邀请码</button>
       </form>
     </section>
@@ -551,7 +629,7 @@ function renderInvitesContent() {
 function renderDevicesContent() {
   return `
     <section class="panel device-panel list-panel">
-      <div class="section-heading"><div><h2>邀请码与绑定设备</h2><p>管理设备访问权限和绑定关系</p></div><button id="refreshDevices" class="secondary" type="button">刷新</button></div>
+      <div class="section-heading"><div><h2>邀请码与绑定设备</h2><p>按邀请码查看绑定数量并管理整码模板与设备关系</p></div><button id="refreshDevices" class="secondary" type="button">刷新</button></div>
       <div id="invites" class="list"><div class="empty-state">正在加载设备...</div></div>
     </section>
     <div id="templateModal" class="modal-shell hidden" aria-hidden="true">
@@ -560,7 +638,7 @@ function renderDevicesContent() {
         <div class="modal-header">
           <div>
             <h2 id="templateModalTitle">切换模板</h2>
-            <p id="templateModalSubtitle">为当前设备选择一个新的配置模板</p>
+            <p id="templateModalSubtitle">为当前邀请码选择一个新的配置模板</p>
           </div>
         </div>
         <div class="modal-body">
@@ -794,6 +872,7 @@ function invitesScript() {
           body: JSON.stringify({
             template_id: q('#inviteTemplate').value,
             count: Number(q('#inviteCount').value),
+            max_devices: Number(q('#inviteMaxDevices').value),
             expire_days: Number(q('#inviteExpireDays').value)
           })
         });
@@ -809,10 +888,13 @@ function invitesScript() {
 
 function devicesScript() {
   return `
-    const statusNames = {unused: '未使用', active: '已绑定', revoked: '已禁用'};
+    const statusNames = {unused: '未使用', active: '已绑定'};
     let assignableTemplates = [];
     let modalClosingTimer = null;
     const templateModalState = { item: null, saving: false };
+    function formatMaxDevices(value) {
+      return Number(value) === 0 ? '不限' : String(Number(value || 1));
+    }
     function buildTemplateOptions(selectedId) {
       const fragment = document.createDocumentFragment();
       if (!assignableTemplates.length) {
@@ -885,7 +967,7 @@ function devicesScript() {
       device.replaceChildren(
         node('strong', '', item.code_value || ('历史邀请码不可查看（****-' + item.code_hint + '）')),
         node('span', '', '当前模板：' + (item.template_name || '未命名模板')),
-        node('small', '', '设备：' + (item.device_id || '未绑定'))
+        node('small', '', '已绑定：' + Number(item.bound_device_count || 0) + ' / ' + formatMaxDevices(item.max_devices))
       );
       select.replaceChildren(buildTemplateOptions(item.template_id));
       select.disabled = !assignableTemplates.length;
@@ -906,23 +988,24 @@ function devicesScript() {
         const details = node('div', 'list-main');
         const title = node('div', 'device-title');
         const fullCode = item.code_value || ('历史邀请码不可查看（****-' + item.code_hint + '）');
+        const boundDeviceCount = Number(item.bound_device_count || 0);
         title.append(node('strong', '', fullCode));
         title.append(node('span', 'badge ' + item.status, statusNames[item.status] || item.status));
         details.append(title);
-        details.append(node('span', '', '模板：' + item.template_name + ' · 设备：' + (item.device_id || '未绑定')));
-        details.append(node('small', '', '绑定时间：' + time(item.bound_at) + ' · 最近访问：' + time(item.last_seen_at) + ' · 过期时间：' + expireTime(item.expires_at)));
+        details.append(node('span', '', '模板：' + item.template_name + ' · 已绑定：' + boundDeviceCount + ' / ' + formatMaxDevices(item.max_devices)));
+        details.append(node('small', '', '最近绑定：' + time(item.latest_bound_at) + ' · 最近访问：' + time(item.latest_seen_at) + ' · 过期时间：' + expireTime(item.expires_at)));
         const actions = node('div', 'actions');
         const templateButton = node('button', 'secondary', '切换模板');
         templateButton.type = 'button';
         templateButton.dataset.id = item.id;
         templateButton.dataset.action = 'change-template';
         actions.append(templateButton);
-        [['revoke', '禁用并删除', 'danger'], ['restore', '恢复', 'secondary'], ['unbind', '解绑', 'secondary']].forEach(value => {
+        [['revoke', '禁用并删除', 'danger'], ['unbind', '解绑', 'secondary']].forEach(value => {
           const button = node('button', value[2], value[1]);
           button.type = 'button';
           button.dataset.id = item.id;
           button.dataset.action = value[0];
-          if ((value[0] === 'revoke' && item.status === 'revoked') || (value[0] === 'restore' && item.status !== 'revoked') || (value[0] === 'unbind' && !item.device_id)) button.disabled = true;
+          if (value[0] === 'unbind' && boundDeviceCount === 0) button.disabled = true;
           actions.append(button);
         });
         templateButton.dataset.item = JSON.stringify({
@@ -931,7 +1014,8 @@ function devicesScript() {
           code_value: item.code_value || '',
           template_id: item.template_id,
           template_name: item.template_name || '',
-          device_id: item.device_id || ''
+          max_devices: Number(item.max_devices ?? 1),
+          bound_device_count: boundDeviceCount
         });
         row.append(details, actions);
         list.append(row);
@@ -995,8 +1079,8 @@ function devicesScript() {
         openTemplateModal(item);
         return;
       }
-      if (button.dataset.action === 'revoke' && !confirm('确认禁用这个设备并删除对应邀请码？删除后该设备需要重新获取邀请码。')) return;
-      if (button.dataset.action === 'unbind' && !confirm('确认解绑该设备？解绑后需要重新激活。')) return;
+      if (button.dataset.action === 'revoke' && !confirm('确认永久删除这个邀请码及其绑定设备？删除后列表会直接移除，相关设备需要重新获取邀请码。')) return;
+      if (button.dataset.action === 'unbind' && !confirm('确认解绑这个邀请码下的全部设备？解绑后所有设备都需要重新激活。')) return;
       button.disabled = true;
       setStatus('正在处理...', 'info');
       try {
@@ -1013,7 +1097,7 @@ function devicesScript() {
 
 function page(title, body) {
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>
-  :root{color-scheme:dark;font-family:system-ui,sans-serif;background:#080b12;color:#f1f5f9}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:#080b12}h1,h2,p{margin-top:0}h1{font-size:28px;margin-bottom:7px}h2{font-size:19px;margin-bottom:5px}p,small,.field-hint{color:#94a3b8}.login-card{max-width:420px;margin:12vh auto 0;background:#121826;border:1px solid #293449;border-radius:8px;padding:24px}.admin-shell{width:100%;min-height:100vh;display:grid;grid-template-columns:220px minmax(0,1fr)}.sidebar{position:sticky;top:0;height:100vh;padding:28px 18px;border-right:1px solid #1e293b;background:#0d1320;display:flex;flex-direction:column}.brand{padding:0 12px 24px}.brand strong,.brand span{display:block}.brand strong{font-size:21px}.brand span{margin-top:4px;color:#94a3b8}.sidebar nav{display:grid;gap:6px}.nav-link{padding:11px 12px;border-radius:6px;color:#aebbd0;text-decoration:none;font-weight:650}.nav-link:hover,.nav-link.active{background:#1b2639;color:#f8fafc}.logout{margin-top:auto}.workspace{min-width:0;padding:32px 40px 48px;display:flex;flex-direction:column;align-items:flex-start}.page-header{width:min(100%,960px);margin-bottom:24px;border-bottom:1px solid #1e293b}.page-header p{margin-bottom:22px}.panel{width:min(100%,960px);background:#121826;border:1px solid #293449;border-radius:8px;padding:22px;margin-bottom:18px}.form-panel,.invite-panel{width:min(100%,860px);max-width:860px}.device-panel{width:min(100%,1120px);max-width:1120px}.section-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px}.section-heading p{margin-bottom:0}.list-panel{padding-bottom:8px}form{display:grid;gap:14px}label{display:grid;gap:7px;font-size:13px;color:#cbd5e1}input,select{width:100%;padding:11px;border:1px solid #475569;border-radius:6px;background:#020617;color:#f8fafc;font:inherit}input:focus,select:focus{outline:2px solid #10b981;outline-offset:1px}.check{display:flex;align-items:center;gap:9px}.check input{width:18px;height:18px}.form-row{display:grid;grid-template-columns:1fr 1fr;gap:14px}.form-actions,.actions{display:flex;gap:10px;flex-wrap:wrap}.device-row .actions{align-self:center;justify-content:flex-end}.device-row .actions button{white-space:nowrap}button,.button{border:0;border-radius:6px;background:#10b981;color:#04120d;padding:10px 15px;font:inherit;font-weight:750;cursor:pointer;text-decoration:none;text-align:center}button:hover,.button:hover{filter:brightness(1.08)}button:disabled{opacity:.45;cursor:not-allowed;filter:none}.secondary{background:#334155;color:#f8fafc}.danger{background:#dc2626;color:white}.compact{padding:7px 12px}.hidden{display:none!important}.list{border-top:1px solid #293449}.list-row,.device-row{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:16px 0;border-bottom:1px solid #243047}.list-main{min-width:0;display:grid;gap:5px;flex:1}.list-main span,.list-main small{overflow-wrap:anywhere}.url-text{color:#aebbd0}.empty-state{padding:32px 12px;text-align:center;color:#94a3b8}.empty-state p{margin-bottom:12px}.device-title{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.badge{display:inline-flex;width:max-content;padding:3px 8px;border-radius:999px;font-size:12px;background:#334155;color:#dbeafe}.badge.active{background:#064e3b;color:#a7f3d0}.badge.revoked{background:#7f1d1d;color:#fecaca}.code-list{display:grid;gap:10px}.code-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;background:#090e18;border:1px solid #293449;border-radius:6px}.code-row code{font-size:16px;color:#6ee7b7}.field-hint{display:flex;align-items:center;gap:8px;font-size:13px}.inline-link,.link-button{color:#6ee7b7}.link-button{border:0;background:none;padding:0}.status{display:none;width:min(100%,960px);margin-top:12px;padding:11px 13px;border-radius:6px}.status.visible{display:block}.status.error{background:#3f151b;color:#fecaca}.status.success{background:#073c30;color:#a7f3d0}.status.info{background:#172554;color:#bfdbfe}.modal-shell{position:fixed;inset:0;display:grid;place-items:center;padding:20px;opacity:0;pointer-events:none;transition:opacity .18s ease;z-index:50}.modal-shell.visible{opacity:1;pointer-events:auto}.modal-backdrop{position:absolute;inset:0;background:rgba(2,6,23,.72)}.modal-card{position:relative;z-index:1;width:min(100%,520px);background:#121826;border:1px solid #293449;border-radius:12px;padding:22px;box-shadow:0 24px 80px rgba(0,0,0,.45);transform:translateY(12px) scale(.98);opacity:0;transition:transform .18s ease,opacity .18s ease}.modal-shell.visible .modal-card{transform:translateY(0) scale(1);opacity:1}.modal-header{display:grid;gap:8px;margin-bottom:18px}.modal-header p{margin-bottom:0}.modal-body{display:grid;gap:14px}.modal-device-info{display:grid;gap:6px;padding:14px;border:1px solid #243047;border-radius:8px;background:#090e18}.modal-device-info strong{font-size:18px}.modal-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:18px}
+  :root{color-scheme:dark;font-family:system-ui,sans-serif;background:#080b12;color:#f1f5f9}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:#080b12}h1,h2,p{margin-top:0}h1{font-size:28px;margin-bottom:7px}h2{font-size:19px;margin-bottom:5px}p,small,.field-hint{color:#94a3b8}.login-card{max-width:420px;margin:12vh auto 0;background:#121826;border:1px solid #293449;border-radius:8px;padding:24px}.admin-shell{width:100%;min-height:100vh;display:grid;grid-template-columns:220px minmax(0,1fr)}.sidebar{position:sticky;top:0;height:100vh;padding:28px 18px;border-right:1px solid #1e293b;background:#0d1320;display:flex;flex-direction:column}.brand{padding:0 12px 24px}.brand strong,.brand span{display:block}.brand strong{font-size:21px}.brand span{margin-top:4px;color:#94a3b8}.sidebar nav{display:grid;gap:6px}.nav-link{padding:11px 12px;border-radius:6px;color:#aebbd0;text-decoration:none;font-weight:650}.nav-link:hover,.nav-link.active{background:#1b2639;color:#f8fafc}.logout{margin-top:auto}.workspace{min-width:0;padding:32px 40px 48px;display:flex;flex-direction:column;align-items:flex-start}.page-header{width:min(100%,960px);margin-bottom:24px;border-bottom:1px solid #1e293b}.page-header p{margin-bottom:22px}.panel{width:min(100%,960px);background:#121826;border:1px solid #293449;border-radius:8px;padding:22px;margin-bottom:18px}.form-panel,.invite-panel{width:min(100%,860px);max-width:860px}.device-panel{width:min(100%,1120px);max-width:1120px}.section-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px}.section-heading p{margin-bottom:0}.list-panel{padding-bottom:8px}form{display:grid;gap:14px}label{display:grid;gap:7px;font-size:13px;color:#cbd5e1}input,select{width:100%;padding:11px;border:1px solid #475569;border-radius:6px;background:#020617;color:#f8fafc;font:inherit}input:focus,select:focus{outline:2px solid #10b981;outline-offset:1px}.check{display:flex;align-items:center;gap:9px}.check input{width:18px;height:18px}.form-row{display:grid;grid-template-columns:1fr 1fr;gap:14px}.form-actions,.actions{display:flex;gap:10px;flex-wrap:wrap}.device-row .actions{align-self:center;justify-content:flex-end}.device-row .actions button{white-space:nowrap}button,.button{border:0;border-radius:6px;background:#10b981;color:#04120d;padding:10px 15px;font:inherit;font-weight:750;cursor:pointer;text-decoration:none;text-align:center}button:hover,.button:hover{filter:brightness(1.08)}button:disabled{opacity:.45;cursor:not-allowed;filter:none}.secondary{background:#334155;color:#f8fafc}.danger{background:#dc2626;color:white}.compact{padding:7px 12px}.hidden{display:none!important}.list{border-top:1px solid #293449}.list-row,.device-row{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:16px 0;border-bottom:1px solid #243047}.list-main{min-width:0;display:grid;gap:5px;flex:1}.list-main span,.list-main small{overflow-wrap:anywhere}.url-text{color:#aebbd0}.empty-state{padding:32px 12px;text-align:center;color:#94a3b8}.empty-state p{margin-bottom:12px}.device-title{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.badge{display:inline-flex;width:max-content;padding:3px 8px;border-radius:999px;font-size:12px;background:#334155;color:#dbeafe}.badge.active{background:#064e3b;color:#a7f3d0}.code-list{display:grid;gap:10px}.code-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;background:#090e18;border:1px solid #293449;border-radius:6px}.code-row code{font-size:16px;color:#6ee7b7}.field-hint{display:flex;align-items:center;gap:8px;font-size:13px}.inline-link,.link-button{color:#6ee7b7}.link-button{border:0;background:none;padding:0}.status{display:none;width:min(100%,960px);margin-top:12px;padding:11px 13px;border-radius:6px}.status.visible{display:block}.status.error{background:#3f151b;color:#fecaca}.status.success{background:#073c30;color:#a7f3d0}.status.info{background:#172554;color:#bfdbfe}.modal-shell{position:fixed;inset:0;display:grid;place-items:center;padding:20px;opacity:0;pointer-events:none;transition:opacity .18s ease;z-index:50}.modal-shell.visible{opacity:1;pointer-events:auto}.modal-backdrop{position:absolute;inset:0;background:rgba(2,6,23,.72)}.modal-card{position:relative;z-index:1;width:min(100%,520px);background:#121826;border:1px solid #293449;border-radius:12px;padding:22px;box-shadow:0 24px 80px rgba(0,0,0,.45);transform:translateY(12px) scale(.98);opacity:0;transition:transform .18s ease,opacity .18s ease}.modal-shell.visible .modal-card{transform:translateY(0) scale(1);opacity:1}.modal-header{display:grid;gap:8px;margin-bottom:18px}.modal-header p{margin-bottom:0}.modal-body{display:grid;gap:14px}.modal-device-info{display:grid;gap:6px;padding:14px;border:1px solid #243047;border-radius:8px;background:#090e18}.modal-device-info strong{font-size:18px}.modal-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:18px}
   @media(max-width:800px){.admin-shell{display:block}.sidebar{position:static;width:100%;height:auto;padding:16px;border-right:0;border-bottom:1px solid #1e293b}.brand{padding:0 4px 14px}.sidebar nav{display:flex;overflow-x:auto}.nav-link{white-space:nowrap}.logout{margin-top:14px;display:block}.workspace{padding:22px 14px 36px}.form-row{grid-template-columns:1fr}.list-row,.device-row,.section-heading{align-items:stretch;flex-direction:column}.actions button,.modal-actions button{flex:1}.page-header{margin-bottom:18px;width:100%}.panel,.form-panel,.invite-panel,.device-panel,.status{width:100%;max-width:none}.modal-shell{padding:14px}.modal-card{width:100%;padding:18px}}
   </style></head><body>${body}</body></html>`;
 }
